@@ -1,6 +1,6 @@
 services:
-  app:
-    build: .
+  metadonalds:
+    image: ghcr.io/fdkevin0/metadonalds:latest
     command: ["-config", "/etc/metadonalds/config.toml"]
     ports:
       - "127.0.0.1:8080:8080"

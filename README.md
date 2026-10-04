@@ -15,12 +15,47 @@ Create `./rclone` and copy your rclone config into `./rclone/rclone.conf`, then 
 
 ```sh
 chmod 600 rclone/rclone.conf
-docker compose up --build
+docker compose pull
+docker compose up -d
 ```
 
 The directory mount lets rclone persist refreshed tokens. The app and rclone
 sidecar share a Unix socket; the API is exposed at `127.0.0.1:8080`. Protect it
 with authentication if you expose it through a reverse proxy.
+
+### Outbound HTTP/HTTPS proxy
+
+Both services support `HTTP_PROXY`, `HTTPS_PROXY`, and `NO_PROXY`. Merge the
+following into their existing Compose configuration, replacing the example
+address with a proxy reachable from the containers:
+
+```yaml
+services:
+  metadonalds:
+    environment:
+      HTTP_PROXY: "http://192.168.1.10:7890"
+      HTTPS_PROXY: "http://192.168.1.10:7890"
+      NO_PROXY: "localhost,127.0.0.1,::1"
+  rclone:
+    environment:
+      RCLONE_CONFIG: /config/rclone/rclone.conf
+      HTTP_PROXY: "http://192.168.1.10:7890"
+      HTTPS_PROXY: "http://192.168.1.10:7890"
+      NO_PROXY: "localhost,127.0.0.1,::1"
+```
+
+`HTTPS_PROXY` selects the proxy for HTTPS destinations; its URL scheme describes
+the connection to the proxy itself, so `http://` is common. See the
+[rclone proxy documentation](https://rclone.org/faq/#can-i-use-rclone-with-an-http-proxy)
+and [Go HTTP transport documentation](https://pkg.go.dev/net/http#DefaultTransport).
+If the proxy runs on the host, use a host address reachable from the containers
+and have it listen on that interface; `127.0.0.1` inside a container refers to
+the container itself. Apply changes with `docker compose up -d`.
+
+These settings cover MetaDonalds' Nyaa requests and rclone's PikPak requests.
+The Unix socket connection between the services stays local. Downloads performed
+in PikPak's cloud do not pass through this proxy. Container environment variables
+also do not configure Docker's own GHCR image pulls.
 
 ### Local Go process
 
@@ -54,9 +89,10 @@ After the first successful publish:
 docker pull ghcr.io/fdkevin0/metadonalds:latest
 ```
 
-To use it with Compose, replace the app's `build: .` with
-`image: ghcr.io/fdkevin0/metadonalds:latest`, keeping the existing config and socket
-mounts. For anonymous pulls, set the package visibility to public in GitHub's
+Compose uses `ghcr.io/fdkevin0/metadonalds:latest` by default. To build locally,
+replace the `metadonalds` service's `image` with `build: .` and run
+`docker compose up --build`.
+For anonymous pulls, set the package visibility to public in GitHub's
 package settings; private packages require authentication to `ghcr.io`.
 
 ## API
@@ -78,6 +114,30 @@ curl -X POST http://127.0.0.1:8080/api/v1/submit \
 ```
 
 `POST /api/v1/submit` accepts only a 40-character hexadecimal infoHash. On success it returns `{"status":"submitted","info_hash":"..."}`. `GET /healthz` returns `ok`. An HTTP timeout can leave submission status uncertain; check PikPak before retrying.
+
+## Logs
+
+MetaDonalds writes JSON logs to stderr with timestamps and severity levels.
+Startup and fatal errors are logged, and each completed HTTP request records
+its method, matched route, status, and duration in milliseconds. HTTP 4xx
+responses use WARN; 5xx responses use ERROR. Unmatched routes have an empty
+route field. Separate operation logs record validated search keywords (`query`)
+at start and completion or failure, plus `result_count` on success. Download
+submission logs record the normalized `info_hash` at start and acceptance or
+failure. Acceptance means the command was accepted, not that the cloud download
+finished; a failed or timed-out submission can still have reached PikPak.
+Logs omit full request URLs, bodies, headers, and raw upstream errors.
+A 502 on the search route
+indicates a Nyaa failure; a 502 on submit indicates an rclone/PikPak failure.
+
+```sh
+docker compose logs -f --tail=100 metadonalds rclone
+```
+
+For an existing deployment using the old `app` service name, run
+`docker compose up -d --remove-orphans` to replace it with `metadonalds`.
+Source changes to logging require a rebuilt image; the published `latest` image
+includes them only after the publishing workflow completes.
 
 ## Development
 

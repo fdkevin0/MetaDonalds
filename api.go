@@ -5,7 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"io"
-	"log"
+	"log/slog"
 	"mime"
 	"net/http"
 	"strings"
@@ -27,12 +27,14 @@ func (s server) routes() http.Handler {
 			http.Error(w, "q must be 1–200 bytes", http.StatusBadRequest)
 			return
 		}
+		slog.InfoContext(r.Context(), "search started", "query", query)
 		results, err := s.search(r.Context(), query)
 		if err != nil {
-			log.Printf("search failed: %v", err)
+			slog.ErrorContext(r.Context(), "search failed", "query", query)
 			http.Error(w, "search failed", http.StatusBadGateway)
 			return
 		}
+		slog.InfoContext(r.Context(), "search completed", "query", query, "result_count", len(results))
 		writeJSON(w, map[string]any{"results": results})
 	})
 	mux.HandleFunc("POST /api/v1/submit", func(w http.ResponseWriter, r *http.Request) {
@@ -60,14 +62,16 @@ func (s server) routes() http.Handler {
 			return
 		}
 		hash := strings.ToLower(input.InfoHash)
+		slog.InfoContext(r.Context(), "submission started", "info_hash", hash)
 		if err := s.submit(r.Context(), hash); err != nil {
-			log.Printf("submit failed for %s: %v", hash, err)
+			slog.ErrorContext(r.Context(), "submission failed", "info_hash", hash)
 			http.Error(w, "submission failed", http.StatusBadGateway)
 			return
 		}
+		slog.InfoContext(r.Context(), "submission accepted", "info_hash", hash)
 		writeJSON(w, map[string]string{"status": "submitted", "info_hash": hash})
 	})
-	return mux
+	return logRequests(mux, slog.Default())
 }
 
 func writeJSON(w http.ResponseWriter, value any) {
