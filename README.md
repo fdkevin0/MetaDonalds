@@ -118,6 +118,23 @@ package settings; private packages require authentication to `ghcr.io`.
 
 ## API
 
+Huma generates OpenAPI 3.1 directly from the registered operations and Go types:
+
+- Interactive documentation and request testing: `http://127.0.0.1:8080/docs`
+- OpenAPI JSON: `http://127.0.0.1:8080/openapi.json`
+- OpenAPI YAML: `http://127.0.0.1:8080/openapi.yaml`
+
+The built-in Scalar page sends requests to the same service. Its JavaScript is
+loaded from `unpkg.com`, so the browser needs access to that CDN. The OpenAPI
+endpoints themselves do not need internet access. Executing a submit request
+from the documentation creates a real PikPak submission.
+
+Errors use Huma's `application/problem+json` format: parameter and schema
+validation failures return 422, malformed JSON returns 400, oversized submit
+bodies return 413, and upstream failures return 502. JSON responses may include
+Huma's `$schema` link. Update clients that relied on the previous plain-text
+errors or validation status codes.
+
 Search Nyaa's RSS feed using the configured filter and category (default:
 all categories, no pagination), sorted by a
 score based on seeders, trusted status, and remake status. The trimmed query
@@ -134,7 +151,7 @@ curl 'http://127.0.0.1:8080/api/v1/search?q=Frieren&f=2&c=1_2'
 ```
 
 Omitted parameters use the configured values. Explicit `f=0` and `c=0_0`
-override them too. Empty or malformed values return HTTP 400: `f` must be a
+override them too. Empty or malformed values return HTTP 422: `f` must be a
 non-negative integer and `c` must use the `digits_digits` format. Overrides
 do not change the configuration or affect subsequent requests.
 
@@ -146,7 +163,11 @@ curl -X POST http://127.0.0.1:8080/api/v1/submit \
   -d '{"info_hash":"0123456789abcdef0123456789abcdef01234567"}'
 ```
 
-`POST /api/v1/submit` accepts only a 40-character hexadecimal infoHash. On success it returns `{"status":"submitted","info_hash":"..."}`. `GET /healthz` returns `ok`. An HTTP timeout can leave submission status uncertain; check PikPak before retrying.
+`POST /api/v1/submit` accepts only a 40-character hexadecimal infoHash, rejects
+unknown fields, and limits the body to 1024 bytes. A successful response has
+`status: "submitted"` and the lowercase `info_hash`. `GET /healthz` returns
+plain text `ok`. An HTTP timeout can leave submission status uncertain; check
+PikPak before retrying.
 
 ## Logs
 
