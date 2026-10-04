@@ -38,6 +38,12 @@ The directory mount lets rclone persist refreshed tokens. The app and rclone
 sidecar share a Unix socket; the API is exposed at `127.0.0.1:8080`. Protect it
 with authentication if you expose it through a reverse proxy.
 
+rclone uses `--rc-no-auth` to permit `backend/command` over the private shared
+Unix socket. Keep access to the socket restricted to trusted processes; this
+configuration does not expose an RC TCP port. The `rc/noopauth` health check
+also checks this authorization gate, unlike `rc/noop`. If you change RC to a
+network listener, configure authentication and update the client accordingly.
+
 ### Outbound HTTP/HTTPS proxy
 
 Both services support `HTTP_PROXY`, `HTTPS_PROXY`, and `NO_PROXY`. Merge the
@@ -80,7 +86,7 @@ Use the Go version declared in [go.mod](go.mod) and install rclone. In
 with that same socket path:
 
 ```sh
-rclone rcd --rc-addr unix:///path/to/rclone.sock
+rclone rcd --rc-addr unix:///path/to/rclone.sock --rc-no-auth
 ```
 
 In another terminal, start the app:

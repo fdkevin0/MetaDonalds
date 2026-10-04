@@ -13,9 +13,9 @@ services:
 
   rclone:
     image: rclone/rclone:1.75.1
-    command: ["rcd", "--rc-addr", "unix:///run/rclone/rclone.sock"]
+    command: ["rcd", "--rc-addr", "unix:///run/rclone/rclone.sock", "--rc-no-auth"]
     healthcheck:
-      test: ["CMD", "rclone", "rc", "--unix-socket", "/run/rclone/rclone.sock", "rc/noop"]
+      test: ["CMD", "rclone", "rc", "--unix-socket", "/run/rclone/rclone.sock", "rc/noopauth"]
       interval: 5s
       timeout: 3s
       retries: 10
