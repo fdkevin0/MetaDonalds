@@ -1,0 +1,8 @@
+.git
+.github
+.agents
+.aws
+.codex
+rclone/
+rclone.conf
+config.toml

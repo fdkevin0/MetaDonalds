@@ -1,0 +1,29 @@
+services:
+  app:
+    build: .
+    command: ["-config", "/etc/metadonalds/config.toml"]
+    ports:
+      - "127.0.0.1:8080:8080"
+    depends_on:
+      rclone:
+        condition: service_healthy
+    volumes:
+      - ./config.toml:/etc/metadonalds/config.toml:ro
+      - rclone_socket:/run/rclone
+
+  rclone:
+    image: rclone/rclone:1.75.1
+    command: ["rcd", "--rc-addr", "unix:///run/rclone/rclone.sock"]
+    healthcheck:
+      test: ["CMD", "rclone", "rc", "--unix-socket", "/run/rclone/rclone.sock", "rc/noop"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+    environment:
+      RCLONE_CONFIG: /config/rclone/rclone.conf
+    volumes:
+      - ./rclone:/config/rclone
+      - rclone_socket:/run/rclone
+
+volumes:
+  rclone_socket:

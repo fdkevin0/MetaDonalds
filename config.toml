@@ -1,0 +1,9 @@
+[server]
+listen_addr = "0.0.0.0:8080"
+
+[nyaa]
+base_url = "https://nyaa.si/"
+
+[pikpak]
+rc_socket = "/run/rclone/rclone.sock"
+remote = "pikpak:My Pack"
