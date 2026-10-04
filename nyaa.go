@@ -36,14 +36,15 @@ type rssFeed struct {
 	} `xml:"channel>item"`
 }
 
-func searchNyaa(ctx context.Context, client *http.Client, baseURL, query string) ([]torrent, error) {
-	u, err := url.Parse(baseURL)
+func searchNyaa(ctx context.Context, client *http.Client, cfg nyaaConfig, query string) ([]torrent, error) {
+	u, err := url.Parse(cfg.BaseURL)
 	if err != nil {
 		return nil, err
 	}
 	params := u.Query()
 	params.Set("page", "rss")
-	params.Set("c", "1_2")
+	params.Set("f", strconv.Itoa(cfg.F))
+	params.Set("c", cfg.C)
 	params.Set("q", query)
 	u.RawQuery = params.Encode()
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, u.String(), nil)

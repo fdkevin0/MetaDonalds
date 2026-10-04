@@ -24,7 +24,7 @@ func TestOperationLogs(t *testing.T) {
 				upstreamErr = errors.New("private-upstream-token")
 			}
 			s := server{
-				search: func(context.Context, string) ([]torrent, error) {
+				search: func(context.Context, nyaaConfig, string) ([]torrent, error) {
 					return []torrent{{InfoHash: testHash}}, upstreamErr
 				},
 				submit: func(context.Context, string) error { return upstreamErr },
@@ -41,6 +41,9 @@ func TestOperationLogs(t *testing.T) {
 			}
 			response := httptest.NewRecorder()
 			s.routes().ServeHTTP(response, req)
+			if strings.Contains(output.String(), "private-upstream-token") {
+				t.Fatal("upstream error leaked into logs")
+			}
 			wantStatus := http.StatusOK
 			if failed {
 				wantStatus = http.StatusBadGateway

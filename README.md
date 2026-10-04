@@ -9,6 +9,21 @@ Configure a PikPak remote named `pikpak` with `rclone config`. The checked-in
 destination. Change it to match your remote and folder. Unknown configuration
 keys are rejected.
 
+Nyaa search parameters are configured in `[nyaa]`:
+
+```toml
+[nyaa]
+base_url = "https://nyaa.si/"
+f = 0
+c = "0_0"
+```
+
+`f` is the integer filter parameter and `c` is the category string sent to Nyaa.
+Omitting them keeps the defaults above. These settings override any `f` or `c`
+in `base_url`; search requests can override either value with `f` and `c`.
+`q` comes from the search request and `page` is always `rss`.
+Restart MetaDonalds after changing the configuration.
+
 ### Docker Compose
 
 Create `./rclone` and copy your rclone config into `./rclone/rclone.conf`, then run:
@@ -97,13 +112,25 @@ package settings; private packages require authentication to `ghcr.io`.
 
 ## API
 
-Search Nyaa's English-translated anime RSS feed (no pagination), sorted by a
+Search Nyaa's RSS feed using the configured filter and category (default:
+all categories, no pagination), sorted by a
 score based on seeders, trusted status, and remake status. The trimmed query
 must be 1–200 bytes; the response is `{"results":[...]}`:
 
 ```sh
 curl 'http://127.0.0.1:8080/api/v1/search?q=Frieren'
 ```
+
+Override the configured filter and category for one request:
+
+```sh
+curl 'http://127.0.0.1:8080/api/v1/search?q=Frieren&f=2&c=1_2'
+```
+
+Omitted parameters use the configured values. Explicit `f=0` and `c=0_0`
+override them too. Empty or malformed values return HTTP 400: `f` must be a
+non-negative integer and `c` must use the `digits_digits` format. Overrides
+do not change the configuration or affect subsequent requests.
 
 Choose an `info_hash` from the results and submit that exact hash:
 

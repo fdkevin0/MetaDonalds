@@ -8,13 +8,18 @@ import (
 	"log/slog"
 	"mime"
 	"net/http"
+	"regexp"
+	"strconv"
 	"strings"
 )
 
 type server struct {
-	search func(context.Context, string) ([]torrent, error)
+	nyaa   nyaaConfig
+	search func(context.Context, nyaaConfig, string) ([]torrent, error)
 	submit func(context.Context, string) error
 }
+
+var categoryPattern = regexp.MustCompile(`^[0-9]+_[0-9]+$`)
 
 func (s server) routes() http.Handler {
 	mux := http.NewServeMux()
@@ -22,13 +27,31 @@ func (s server) routes() http.Handler {
 		_, _ = w.Write([]byte("ok\n"))
 	})
 	mux.HandleFunc("GET /api/v1/search", func(w http.ResponseWriter, r *http.Request) {
-		query := strings.TrimSpace(r.URL.Query().Get("q"))
+		params := r.URL.Query()
+		query := strings.TrimSpace(params.Get("q"))
 		if query == "" || len(query) > 200 {
 			http.Error(w, "q must be 1–200 bytes", http.StatusBadRequest)
 			return
 		}
-		slog.InfoContext(r.Context(), "search started", "query", query)
-		results, err := s.search(r.Context(), query)
+		cfg := s.nyaa
+		if params.Has("f") {
+			filter, err := strconv.Atoi(params.Get("f"))
+			if err != nil || filter < 0 {
+				http.Error(w, "f must be a non-negative integer", http.StatusBadRequest)
+				return
+			}
+			cfg.F = filter
+		}
+		if params.Has("c") {
+			category := params.Get("c")
+			if !categoryPattern.MatchString(category) {
+				http.Error(w, "c must have the form digits_digits", http.StatusBadRequest)
+				return
+			}
+			cfg.C = category
+		}
+		slog.InfoContext(r.Context(), "search started", "query", query, "f", cfg.F, "c", cfg.C)
+		results, err := s.search(r.Context(), cfg, query)
 		if err != nil {
 			slog.ErrorContext(r.Context(), "search failed", "query", query)
 			http.Error(w, "search failed", http.StatusBadGateway)

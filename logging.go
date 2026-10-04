@@ -3,48 +3,22 @@ package main
 import (
 	"log/slog"
 	"net/http"
-	"time"
+
+	"github.com/felixge/httpsnoop"
 )
-
-type loggedResponse struct {
-	http.ResponseWriter
-	status int
-}
-
-func (w *loggedResponse) WriteHeader(status int) {
-	if w.status == 0 && status >= 200 {
-		w.status = status
-	}
-	w.ResponseWriter.WriteHeader(status)
-}
-
-func (w *loggedResponse) Write(body []byte) (int, error) {
-	if w.status == 0 {
-		w.WriteHeader(http.StatusOK)
-	}
-	return w.ResponseWriter.Write(body)
-}
-
-func (w *loggedResponse) Unwrap() http.ResponseWriter { return w.ResponseWriter }
 
 func logRequests(next http.Handler, logger *slog.Logger) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		start := time.Now()
-		response := &loggedResponse{ResponseWriter: w}
-		next.ServeHTTP(response, r)
-		status := response.status
-		if status == 0 {
-			status = http.StatusOK
-		}
+		metrics := httpsnoop.CaptureMetrics(next, w, r)
 		level := slog.LevelInfo
-		if status >= 500 {
+		if metrics.Code >= 500 {
 			level = slog.LevelError
-		} else if status >= 400 {
+		} else if metrics.Code >= 400 {
 			level = slog.LevelWarn
 		}
 		// Log the matched route, not user-controlled URLs, queries, or bodies.
 		logger.Log(r.Context(), level, "HTTP request", "method", r.Method,
-			"route", r.Pattern, "status", status,
-			"duration_ms", float64(time.Since(start).Microseconds())/1000)
+			"route", r.Pattern, "status", metrics.Code,
+			"duration_ms", float64(metrics.Duration.Microseconds())/1000)
 	})
 }

@@ -21,8 +21,9 @@ func main() {
 	client := &http.Client{Timeout: 15 * time.Second}
 	rcClient := newRCClient(cfg.PikPak.RCSocket)
 	s := server{
-		search: func(ctx context.Context, query string) ([]torrent, error) {
-			return searchNyaa(ctx, client, cfg.Nyaa.BaseURL, query)
+		nyaa: cfg.Nyaa,
+		search: func(ctx context.Context, searchConfig nyaaConfig, query string) ([]torrent, error) {
+			return searchNyaa(ctx, client, searchConfig, query)
 		},
 		submit: func(ctx context.Context, hash string) error {
 			return submitViaRC(ctx, rcClient, cfg.PikPak.Remote, hash)

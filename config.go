@@ -9,13 +9,17 @@ import (
 	"github.com/BurntSushi/toml"
 )
 
+type nyaaConfig struct {
+	BaseURL string `toml:"base_url"`
+	F       int    `toml:"f"`
+	C       string `toml:"c"`
+}
+
 type config struct {
 	Server struct {
 		ListenAddr string `toml:"listen_addr"`
 	} `toml:"server"`
-	Nyaa struct {
-		BaseURL string `toml:"base_url"`
-	} `toml:"nyaa"`
+	Nyaa   nyaaConfig `toml:"nyaa"`
 	PikPak struct {
 		RCSocket string `toml:"rc_socket"`
 		Remote   string `toml:"remote"`
@@ -23,7 +27,7 @@ type config struct {
 }
 
 func loadConfig(path string) (config, error) {
-	var cfg config
+	cfg := config{Nyaa: nyaaConfig{F: 0, C: "0_0"}}
 	meta, err := toml.DecodeFile(path, &cfg)
 	if err != nil {
 		return cfg, err
