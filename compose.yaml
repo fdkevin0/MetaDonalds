@@ -12,7 +12,7 @@ services:
       - rclone_socket:/run/rclone
 
   rclone:
-    image: rclone/rclone:1.75.1
+    image: rclone/rclone:1.75.2
     command: ["rcd", "--rc-addr", "unix:///run/rclone/rclone.sock", "--rc-no-auth"]
     healthcheck:
       test: ["CMD", "rclone", "rc", "--unix-socket", "/run/rclone/rclone.sock", "rc/noopauth"]
