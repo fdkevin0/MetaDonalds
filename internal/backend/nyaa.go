@@ -1,4 +1,4 @@
-package main
+package backend
 
 import (
 	"context"
@@ -36,7 +36,7 @@ type rssFeed struct {
 	} `xml:"channel>item"`
 }
 
-func searchNyaa(ctx context.Context, client *http.Client, cfg nyaaConfig, query string) ([]torrent, error) {
+func searchNyaa(ctx context.Context, client *http.Client, cfg NyaaConfig, query string) ([]torrent, error) {
 	u, err := url.Parse(cfg.BaseURL)
 	if err != nil {
 		return nil, err

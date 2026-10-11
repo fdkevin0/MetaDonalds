@@ -1,0 +1,22 @@
+{
+  "name": "metadonalds-ui",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "scripts": {
+    "dev": "bun --bun vite --host 127.0.0.1",
+    "check": "bun --bun svelte-check --tsconfig ./tsconfig.json",
+    "test": "bun test tests",
+    "build": "bun run check && bun --bun vite build"
+  },
+  "devDependencies": {
+    "@sveltejs/vite-plugin-svelte": "7.3.1",
+    "@tailwindcss/vite": "4.3.3",
+    "svelte": "5.57.1",
+    "svelte-check": "4.7.6",
+    "tailwindcss": "4.3.3",
+    "typescript": "6.0.3",
+    "vite": "8.3.2"
+  },
+  "packageManager": "bun@1.4.2"
+}

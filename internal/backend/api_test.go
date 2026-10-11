@@ -1,4 +1,4 @@
-package main
+package backend
 
 import (
 	"context"
@@ -56,7 +56,7 @@ func TestSubmitValidatesHash(t *testing.T) {
 
 func TestSearchQueryValidation(t *testing.T) {
 	calls := 0
-	s := server{search: func(_ context.Context, _ nyaaConfig, query string) ([]torrent, error) {
+	s := server{search: func(_ context.Context, _ NyaaConfig, query string) ([]torrent, error) {
 		calls++
 		if query != "Frieren" {
 			t.Errorf("query was not trimmed: %q", query)
@@ -154,7 +154,7 @@ func TestAPIDocumentation(t *testing.T) {
 }
 
 func TestSearchOverrides(t *testing.T) {
-	defaults := nyaaConfig{BaseURL: "https://mirror.example/", F: 2, C: "1_2"}
+	defaults := NyaaConfig{BaseURL: "https://mirror.example/", F: 2, C: "1_2"}
 	for _, tc := range []struct {
 		params string
 		f      int
@@ -173,7 +173,7 @@ func TestSearchOverrides(t *testing.T) {
 	} {
 		t.Run(tc.params, func(t *testing.T) {
 			calls := 0
-			s := server{nyaa: defaults, search: func(_ context.Context, cfg nyaaConfig, query string) ([]torrent, error) {
+			s := server{nyaa: defaults, search: func(_ context.Context, cfg NyaaConfig, query string) ([]torrent, error) {
 				calls++
 				want := defaults
 				if calls == 1 {

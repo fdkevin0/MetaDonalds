@@ -6,10 +6,13 @@ infoHash to PikPak through rclone. It has no database or background queue.
 ## Read as needed
 
 - For setup and API usage, use [README.md](README.md).
-- For HTTP contracts, use `api.go`; for ranking and RSS parsing, use `nyaa.go`.
-- For PikPak submission, use `pikpak.go`. The rclone RC client connects over a
+- For HTTP contracts, use `internal/backend/api.go`; for ranking and RSS parsing,
+  use `internal/backend/nyaa.go`.
+- For PikPak submission, use `internal/backend/pikpak.go`. The rclone RC client connects over a
   Unix socket, and rclone owns credentials and token refresh.
-- For configuration, use `config.go` and `config.toml`; for container or release
+- For commands, use `cmd/metadonalds`; for startup and shutdown, use `internal/app`.
+- For configuration loading, use `internal/app/config.go`; for validation, use
+  `internal/backend/config.go`. The example file is `config.example.toml`. For container or release
   changes, use `compose.yaml`, `Dockerfile`, and `.github/workflows/docker.yml`.
 
 ## Behavior and validation
@@ -18,7 +21,8 @@ A successful submission means rclone accepted the command, not that a download
 finished. A timeout can leave the outcome uncertain; do not add automatic
 submission retries without accounting for duplicate requests.
 
-`go test ./...` uses in-memory HTTP fakes and temporary files, with no live Nyaa,
+`just test` builds frontend assets and runs frontend tests and `go test -race ./...`.
+Go tests use in-memory HTTP fakes and temporary files, with no live Nyaa,
 rclone, or PikPak access. Run relevant tests, fix failures caused by the change,
 and rerun them without seeking approval at each step. Documentation-only edits
 normally need link and accuracy checks, not the Go suite.

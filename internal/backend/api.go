@@ -1,4 +1,4 @@
-package main
+package backend
 
 import (
 	"context"
@@ -6,13 +6,16 @@ import (
 	"net/http"
 	"strings"
 
+	"github.com/fdkevin0/MetaDonalds/ui"
+
 	"github.com/danielgtaylor/huma/v2"
 	"github.com/danielgtaylor/huma/v2/adapters/humago"
 )
 
 type server struct {
-	nyaa   nyaaConfig
-	search func(context.Context, nyaaConfig, string) ([]torrent, error)
+	logger *slog.Logger
+	nyaa   NyaaConfig
+	search func(context.Context, NyaaConfig, string) ([]torrent, error)
 	submit func(context.Context, string) error
 }
 
@@ -66,7 +69,12 @@ type healthOutput struct {
 }
 
 func (s server) routes() http.Handler {
+	logger := s.logger
+	if logger == nil {
+		logger = slog.Default()
+	}
 	mux := http.NewServeMux()
+	mux.Handle("GET /", ui.Handler())
 	config := huma.DefaultConfig("MetaDonalds", "1.0.0")
 	config.DocsRenderer = huma.DocsRendererScalar
 	api := humago.New(mux, config)
@@ -91,13 +99,13 @@ func (s server) routes() http.Handler {
 		if in.cSet {
 			cfg.C = in.C
 		}
-		slog.InfoContext(ctx, "search started", "query", in.Q, "f", cfg.F, "c", cfg.C)
+		logger.InfoContext(ctx, "search started", "query", in.Q, "f", cfg.F, "c", cfg.C)
 		results, err := s.search(ctx, cfg, in.Q)
 		if err != nil {
-			slog.ErrorContext(ctx, "search failed", "query", in.Q)
+			logger.ErrorContext(ctx, "search failed", "query", in.Q)
 			return nil, huma.Error502BadGateway("search failed")
 		}
-		slog.InfoContext(ctx, "search completed", "query", in.Q, "result_count", len(results))
+		logger.InfoContext(ctx, "search completed", "query", in.Q, "result_count", len(results))
 		out := &searchOutput{}
 		out.Body.Results = results
 		return out, nil
@@ -108,15 +116,15 @@ func (s server) routes() http.Handler {
 		MaxBodyBytes: 1024, Errors: []int{http.StatusBadRequest, http.StatusRequestEntityTooLarge, http.StatusUnsupportedMediaType, http.StatusBadGateway},
 	}, func(ctx context.Context, in *submitInput) (*submitOutput, error) {
 		hash := strings.ToLower(in.Body.InfoHash)
-		slog.InfoContext(ctx, "submission started", "info_hash", hash)
+		logger.InfoContext(ctx, "submission started", "info_hash", hash)
 		if err := s.submit(ctx, hash); err != nil {
-			slog.ErrorContext(ctx, "submission failed", "info_hash", hash)
+			logger.ErrorContext(ctx, "submission failed", "info_hash", hash)
 			return nil, huma.Error502BadGateway("submission failed")
 		}
-		slog.InfoContext(ctx, "submission accepted", "info_hash", hash)
+		logger.InfoContext(ctx, "submission accepted", "info_hash", hash)
 		out := &submitOutput{}
 		out.Body.Status, out.Body.InfoHash = "submitted", hash
 		return out, nil
 	})
-	return logRequests(mux, slog.Default())
+	return logRequests(mux, logger)
 }

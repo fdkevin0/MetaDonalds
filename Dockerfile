@@ -1,11 +1,25 @@
+FROM oven/bun:1.4.2-alpine AS frontend
+WORKDIR /src/frontend
+COPY frontend/package.json frontend/bun.lock ./
+RUN bun install --frozen-lockfile
+COPY frontend/ ./
+RUN bun run build
+
 FROM golang:1.27.1-alpine AS build
 WORKDIR /src
 COPY go.mod go.sum ./
 RUN go mod download
-COPY *.go ./
-RUN CGO_ENABLED=0 go build -o /server .
+COPY cmd/ ./cmd/
+COPY ui/*.go ./ui/
+COPY internal/ ./internal/
+COPY --from=frontend /src/ui/dist ./ui/dist
+RUN CGO_ENABLED=0 go build -o /metadonalds ./cmd/metadonalds
+
+FROM rclone/rclone:1.75.1 AS rclone
 
 FROM alpine:3.24
 RUN apk add --no-cache ca-certificates
-COPY --from=build /server /usr/local/bin/server
-ENTRYPOINT ["/usr/local/bin/server"]
+COPY --from=rclone /usr/local/bin/rclone /usr/local/bin/rclone
+COPY --from=build /metadonalds /usr/local/bin/metadonalds
+ENTRYPOINT ["/usr/local/bin/metadonalds"]
+CMD ["serve"]

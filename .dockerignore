@@ -6,3 +6,6 @@
 rclone/
 rclone.conf
 config.toml
+frontend/node_modules/
+ui/dist/
+bin/

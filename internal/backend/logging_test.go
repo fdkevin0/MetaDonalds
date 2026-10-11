@@ -1,4 +1,4 @@
-package main
+package backend
 
 import (
 	"bytes"
@@ -24,7 +24,7 @@ func TestOperationLogs(t *testing.T) {
 				upstreamErr = errors.New("private-upstream-token")
 			}
 			s := server{
-				search: func(context.Context, nyaaConfig, string) ([]torrent, error) {
+				search: func(context.Context, NyaaConfig, string) ([]torrent, error) {
 					return []torrent{{InfoHash: testHash}}, upstreamErr
 				},
 				submit: func(context.Context, string) error { return upstreamErr },

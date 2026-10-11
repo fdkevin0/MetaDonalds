@@ -12,7 +12,28 @@ permissions:
   contents: read
 
 jobs:
+  test:
+    strategy:
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: '1.4.2'
+      - uses: extractions/setup-just@v4
+        with:
+          just-version: '1.46.0'
+      - run: just test build
+      - if: runner.os == 'macOS'
+        run: just --no-deps test-desktop desktop
+
   docker:
+    needs: test
     runs-on: ubuntu-latest
     permissions:
       contents: read

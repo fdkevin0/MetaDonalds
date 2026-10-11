@@ -1,0 +1,20 @@
+@import 'tailwindcss';
+
+@theme {
+  --font-sans: system-ui, 'PingFang SC', sans-serif;
+}
+
+:root { color-scheme: light; }
+body { margin: 0; background: #fff; color: #000; }
+button, input, select { font: inherit; }
+button { cursor: pointer; }
+button:disabled { cursor: not-allowed; opacity: .45; }
+button, input, select, a { outline-offset: 3px; }
+:focus-visible { outline: 2px solid #000; }
+::selection { background: #000; color: #fff; }
+
+@layer components {
+  .field { @apply w-full rounded border border-neutral-300 bg-white px-3 py-2 text-sm text-black placeholder:text-neutral-500; }
+  .primary { @apply rounded border border-black bg-black px-4 py-2 text-sm font-medium text-white hover:bg-neutral-800; }
+  .secondary { @apply rounded border border-neutral-300 bg-white px-3 py-2 text-sm text-black hover:border-black; }
+}

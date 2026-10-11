@@ -1,4 +1,4 @@
-package main
+package backend
 
 import (
 	"bytes"
@@ -12,7 +12,8 @@ import (
 	"time"
 )
 
-func newRCClient(socket string) *http.Client {
+// NewRCClient connects to rclone's local Unix socket without using HTTP proxies.
+func NewRCClient(socket string) *http.Client {
 	return &http.Client{
 		Timeout: 45 * time.Second,
 		Transport: &http.Transport{DialContext: func(ctx context.Context, _, _ string) (net.Conn, error) {
