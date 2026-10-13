@@ -245,6 +245,16 @@ on shutdown; the standalone server handles Ctrl+C and SIGTERM.
 
 ## Browser and terminal interfaces
 
+Both interfaces discover enabled sources and downloaders. Select a source,
+search, open an item for details/resources, choose a downloader and explicitly
+confirm a resource submission. Without a downloader, browsing remains available.
+The browser uses the Svelte UI and offers previous/next search pages.
+In the terminal, `Ctrl+S` cycles sources and `Ctrl+D` cycles downloaders;
+`Enter` opens an item/resource, `n` / `p` changes search pages, and `Esc` returns
+from resources to items. `Ctrl+R` retries failed initial capability discovery.
+Filters apply only to Nyaa. Accepted resources are deduplicated for the current
+client session per downloader instance and normalized infoHash.
+
 Open `http://127.0.0.1:8080/` for the Svelte + TypeScript + Tailwind interface.
 It supports keyword search, per-request filter/category overrides, ranked
 results, and an explicit confirmation before submitting to PikPak. Blank

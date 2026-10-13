@@ -12,6 +12,7 @@ import (
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
 	"github.com/fdkevin0/MetaDonalds/internal/client"
+	"github.com/fdkevin0/MetaDonalds/internal/core"
 )
 
 type searchDone struct {
@@ -25,6 +26,20 @@ type submitDone struct {
 }
 
 type model struct {
+	pendingHistory []string
+
+	activeQuery, activeF, activeC, currentCursor string
+	previousCursors                              []string
+
+	pluginsReady, discoveryFailed, discoveryPending bool
+	sources, downloaders                            []core.Plugin
+	sourceIndex, downloaderIndex                    int
+	sourceItems                                     []core.Item
+	resources                                       []core.Resource
+	resourceMode                                    bool
+	detail                                          core.Item
+	nextCursor                                      string
+
 	client        *client.Client
 	ctx           context.Context
 	inputs        []textinput.Model
@@ -48,7 +63,7 @@ func newModel(ctx context.Context, c *client.Client) model {
 		inputs[i].SetWidth(65)
 	}
 	inputs[0].Focus()
-	return model{ctx: ctx, client: c, inputs: inputs, phase: "form", accepted: map[string]bool{}, width: 90, height: 28,
+	return model{ctx: ctx, client: c, discoveryPending: c != nil, inputs: inputs, phase: "form", accepted: map[string]bool{}, width: 90, height: 28,
 		table:  table.New(table.WithColumns(columns(90)), table.WithWidth(88), table.WithHeight(10), table.WithFocused(true)),
 		status: "Search Nyaa, choose a result, then confirm submission to PikPak."}
 }
@@ -57,9 +72,12 @@ func columns(width int) []table.Column {
 	return []table.Column{{Title: "Title", Width: max(8, width-53)}, {Title: "Size", Width: 10}, {Title: "Seeds", Width: 7}, {Title: "Score", Width: 6}, {Title: "Flags", Width: 12}}
 }
 
-func (m model) Init() tea.Cmd { return textinput.Blink }
+func (m model) Init() tea.Cmd { return tea.Batch(textinput.Blink, m.discover) }
 
 func (m model) Update(message tea.Msg) (tea.Model, tea.Cmd) {
+	if next, cmd, handled := m.updatePlugins(message); handled {
+		return next, cmd
+	}
 	switch msg := message.(type) {
 	case tea.WindowSizeMsg:
 		m.width, m.height = msg.Width, msg.Height
@@ -98,7 +116,7 @@ func (m model) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		return m, nil
 	case tea.MouseClickMsg:
-		if m.busy || m.width < 60 || m.height < 20 || msg.Button != tea.MouseLeft || msg.X < 0 || msg.X >= m.width-2 {
+		if m.busy || m.discoveryPending || m.width < 60 || m.height < 20 || msg.Button != tea.MouseLeft || msg.X < 0 || msg.X >= m.width-2 {
 			return m, nil
 		}
 		if m.phase == "confirm" {
@@ -130,7 +148,7 @@ func (m model) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		return m, nil
 	case tea.MouseWheelMsg:
-		if !m.busy && m.phase != "confirm" && m.width >= 60 && m.height >= 20 && msg.X >= 0 && msg.X < m.width-2 && msg.Y >= 10 && msg.Y < 11+m.table.Height() && len(m.items) > 0 {
+		if !m.busy && !m.discoveryPending && m.phase != "confirm" && m.width >= 60 && m.height >= 20 && msg.X >= 0 && msg.X < m.width-2 && msg.Y >= 10 && msg.Y < 11+m.table.Height() && len(m.items) > 0 {
 			if msg.Button == tea.MouseWheelDown {
 				m.selectRow(m.cursor + 3)
 			}
@@ -146,7 +164,28 @@ func (m model) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 		if key == "ctrl+c" {
 			return m, tea.Quit
 		}
-		if m.busy || m.width < 60 || m.height < 20 {
+		if m.busy || m.discoveryPending || m.width < 60 || m.height < 20 {
+			return m, nil
+		}
+		if key == "ctrl+r" && m.discoveryFailed && m.phase != "confirm" {
+			m.discoveryPending = true
+			return m, m.discover
+		}
+		if m.pluginsReady && m.phase != "confirm" && (key == "ctrl+s" || key == "ctrl+d") {
+			if key == "ctrl+s" && len(m.sources) > 0 {
+				m.sourceIndex = (m.sourceIndex + 1) % len(m.sources)
+				m.items = nil
+				m.sourceItems = nil
+				m.resources = nil
+				m.resourceMode = false
+				m.nextCursor = ""
+				m.selectRow(0)
+				m.phase = "form"
+				m.inputs[m.focus].Focus()
+			}
+			if key == "ctrl+d" && len(m.downloaders) > 0 {
+				m.downloaderIndex = (m.downloaderIndex + 1) % len(m.downloaders)
+			}
 			return m, nil
 		}
 		switch m.phase {
@@ -161,26 +200,94 @@ func (m model) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 				m.focus = (m.focus + step) % len(m.inputs)
 				return m, m.inputs[m.focus].Focus()
 			case "enter":
+				if m.discoveryFailed {
+					m.status = "Plugin discovery failed. Ctrl+R retries."
+					return m, nil
+				}
+				if m.pluginsReady && len(m.sources) == 0 {
+					return m, nil
+				}
 				m.busy = true
 				m.status = "Searching…"
+				if m.pluginsReady {
+					m.activeQuery, m.activeF, m.activeC = m.inputs[0].Value(), strings.TrimSpace(m.inputs[1].Value()), strings.TrimSpace(m.inputs[2].Value())
+					m.currentCursor = ""
+					m.previousCursors = nil
+					m.pendingHistory = nil
+					m.items = nil
+					m.sourceItems = nil
+					m.nextCursor = ""
+					m.resources = nil
+					m.resourceMode = false
+					m.top = 0
+					m.selectRow(0)
+					return m, m.searchSource("")
+				}
 				q, f, c := m.inputs[0].Value(), strings.TrimSpace(m.inputs[1].Value()), strings.TrimSpace(m.inputs[2].Value())
 				return m, func() tea.Msg { items, err := m.client.Search(m.ctx, q, f, c); return searchDone{items, err} }
 			}
 		case "results":
 			switch key {
 			case "/", "esc":
+				if key == "esc" && m.resourceMode {
+					m.resourceMode = false
+					m.items = itemRows(m.sourceItems)
+					m.top = 0
+					m.selectRow(0)
+					m.status = "Choose an item; Enter opens details."
+					return m, nil
+				}
 				m.phase = "form"
 				return m, m.inputs[m.focus].Focus()
 			case "enter":
 				if len(m.items) == 0 {
 					return m, nil
 				}
-				if m.accepted[m.items[m.cursor].InfoHash] {
-					m.status = "Already accepted in this session. Check PikPak."
+				if m.pluginsReady && !m.resourceMode {
+					item := m.sourceItems[m.cursor]
+					m.busy = true
+					m.status = "Loading details and resources…"
+					return m, func() tea.Msg {
+						detail, err := m.client.Detail(m.ctx, item.SourceID, item.ID)
+						if err != nil {
+							return detailDone{err: err}
+						}
+						resources, err := m.client.Resources(m.ctx, item.SourceID, item.ID)
+						if m.sources[m.sourceIndex].Type == "nyaa" {
+							detail = item
+							for i := range resources {
+								resources[i].Title = item.Title
+								resources[i].Size = item.Size
+								resources[i].Seeders = item.Seeders
+							}
+						}
+						return detailDone{detail, resources, err}
+					}
+				}
+				if m.pluginsReady && len(m.downloaders) == 0 {
+					m.status = "No enabled downloader. Resources remain available for browsing."
+					return m, nil
+				}
+				if m.accepted[m.acceptedKey(m.items[m.cursor].InfoHash)] {
+					m.status = "Already accepted for this downloader in this session. Check the downloader."
 					return m, nil
 				}
 				m.phase = "confirm"
 				return m, nil
+			case "n":
+				if m.pluginsReady && !m.resourceMode && m.nextCursor != "" {
+					m.busy = true
+					m.pendingHistory = append(append([]string(nil), m.previousCursors...), m.currentCursor)
+					return m, m.searchSource(m.nextCursor)
+				}
+			case "p":
+				if m.pluginsReady && !m.resourceMode && len(m.previousCursors) > 0 {
+					last := len(m.previousCursors) - 1
+					targetCursor := m.previousCursors[last]
+					m.pendingHistory = append([]string(nil), m.previousCursors[:last]...)
+					m.busy = true
+					return m, m.searchSource(targetCursor)
+				}
 			case "up", "k":
 				m.selectRow(m.cursor - 1)
 			case "down", "j":
@@ -206,8 +313,17 @@ func (m model) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 				m.phase = "results"
 			case "y":
 				m.busy = true
-				m.status = "Submitting… If interrupted, check PikPak before retrying."
+				m.status = "Submitting… If interrupted, check the downloader before retrying."
 				hash := m.items[m.cursor].InfoHash
+				if m.pluginsReady {
+					r := m.resources[m.cursor]
+					downloader := m.downloaderID()
+					key := m.acceptedKey(hash)
+					return m, func() tea.Msg {
+						result, err := m.client.SubmitResource(m.ctx, downloader, r)
+						return resourceSubmitDone{key, result, err}
+					}
+				}
 				return m, func() tea.Msg { return submitDone{hash, m.client.Submit(m.ctx, hash)} }
 			}
 			return m, nil
@@ -233,7 +349,7 @@ func (m *model) selectRow(index int) {
 		m.top = m.cursor - height + 1
 	}
 	rows := make([]table.Row, 0, height)
-	for _, item := range m.items[m.top:min(len(m.items), m.top+height)] {
+	for i, item := range m.items[m.top:min(len(m.items), m.top+height)] {
 		flags := ""
 		if item.Trusted {
 			flags += "trusted "
@@ -241,7 +357,11 @@ func (m *model) selectRow(index int) {
 		if item.Remake {
 			flags += "remake"
 		}
-		rows = append(rows, table.Row{plain(item.Title), plain(item.Size), fmt.Sprint(item.Seeders), fmt.Sprint(item.Score), flags})
+		score := fmt.Sprint(item.Score)
+		if m.pluginsReady && !m.resourceMode {
+			score = plain(m.sourceItems[m.top+i].Score)
+		}
+		rows = append(rows, table.Row{plain(item.Title), plain(item.Size), fmt.Sprint(item.Seeders), score, flags})
 	}
 	m.table.GotoTop()
 	m.table.SetRows(rows)
@@ -264,7 +384,11 @@ func plain(s string) string {
 
 func (m model) View() tea.View {
 	var content strings.Builder
-	content.WriteString("MetaDonalds  /  NYAA → PIKPAK\n\n")
+	if m.pluginsReady {
+		fmt.Fprintf(&content, "MetaDonalds  /  %s → %s\n\n", plain(m.sourceID()), plain(m.downloaderID()))
+	} else {
+		content.WriteString("MetaDonalds  /  NYAA → PIKPAK\n\n")
+	}
 	if m.width < 60 || m.height < 20 {
 		content.WriteString("Please resize your terminal to at least 60 × 20. Ctrl+C quits.")
 	} else if m.phase == "confirm" {
@@ -274,7 +398,11 @@ func (m model) View() tea.View {
 		if m.busy {
 			status = m.status
 		}
-		fmt.Fprintf(&content, "Submit to PikPak?\n\n%s\n%s\n\n[y] Confirm  [n / Esc] Cancel\n\nCheck PikPak first if a previous attempt was uncertain.\n\n%s", title, plain(item.InfoHash), status)
+		target := "PikPak"
+		if m.pluginsReady {
+			target = m.downloaderID()
+		}
+		fmt.Fprintf(&content, "Submit to %s?\n\n%s\n%s\n\n[y] Confirm  [n / Esc] Cancel\n\nCheck the downloader first if a previous attempt was uncertain.\n\n%s", plain(target), title, plain(item.InfoHash), status)
 	} else {
 		for i, label := range []string{"Keywords", "Filter", "Category"} {
 			fmt.Fprintf(&content, "%s\n%s\n", label, m.inputs[i].View())
@@ -297,7 +425,7 @@ func Run(ctx context.Context, serverURL string) error {
 	}
 	final, err := tea.NewProgram(newModel(ctx, c), tea.WithContext(ctx)).Run()
 	if m, ok := final.(model); ok && m.busy && m.phase == "confirm" {
-		fmt.Fprintln(os.Stderr, "Submission interrupted; outcome uncertain. Check PikPak before retrying.")
+		fmt.Fprintln(os.Stderr, "Submission interrupted; outcome uncertain. Check the downloader before retrying.")
 	}
 	if ctx.Err() != nil {
 		return nil

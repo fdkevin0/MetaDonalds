@@ -13,6 +13,7 @@ import (
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
 	"github.com/fdkevin0/MetaDonalds/internal/client"
+	"github.com/fdkevin0/MetaDonalds/internal/core"
 )
 
 func press(code rune) tea.KeyPressMsg { return tea.KeyPressMsg{Code: code} }
@@ -63,6 +64,30 @@ func TestSearchResultsVisible(t *testing.T) {
 	}
 }
 
+func TestPluginScoresPreservedWhenScrolling(t *testing.T) {
+	m := newModel(context.Background(), nil)
+	m.pluginsReady = true
+	m.table.SetHeight(3)
+	next, _ := m.Update(pageDone{page: core.Page{Items: []core.Item{
+		{Title: "Unrated"},
+		{Title: "Integer score", Score: "27"},
+		{Title: "Decimal score", Score: "3.84"},
+	}}})
+	m = next.(model)
+	if got := m.table.Rows()[0][3]; got != "" {
+		t.Fatalf("missing score displayed as %q", got)
+	}
+	m.selectRow(2)
+	for i, want := range []string{"27", "3.84"} {
+		if got := m.table.Rows()[i][3]; got != want {
+			t.Fatalf("row %d score = %q, want %q", i, got, want)
+		}
+	}
+	if view := m.View().Content; !strings.Contains(view, "3.84") {
+		t.Fatalf("decimal score missing from view:\n%s", view)
+	}
+}
+
 func clickText(t *testing.T, m model, text string) tea.MouseClickMsg {
 	t.Helper()
 	for y, line := range strings.Split(m.View().Content, "\n") {
@@ -101,6 +126,7 @@ func TestMouseSearchScrollAndConfirm(t *testing.T) {
 		t.Fatal(err)
 	}
 	m := newModel(context.Background(), c)
+	m.discoveryPending = false // This fixture exercises the retained legacy interaction path.
 	update := func(msg tea.Msg) tea.Cmd { next, cmd := m.Update(msg); m = next.(model); return cmd }
 	update(tea.WindowSizeMsg{Width: 90, Height: 28})
 	if m.View().MouseMode != tea.MouseModeCellMotion {
@@ -215,5 +241,157 @@ func TestSmallTerminalBlocksHiddenKeyboardActions(t *testing.T) {
 	next, cmd = next.Update(press('y'))
 	if !next.(model).busy || cmd == nil {
 		t.Fatal("visible confirmation no longer works after resizing")
+	}
+}
+
+func TestPluginSearchDetailsAndDownloaderSelection(t *testing.T) {
+	const hash = "0123456789abcdef0123456789abcdef01234567"
+	var calls []string
+	var queries []string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		calls = append(calls, r.URL.Path)
+		switch {
+		case r.URL.Path == "/api/v1/plugins":
+			fmt.Fprint(w, `{"plugins":[{"id":"catalog","type":"javdb","kind":"source","capabilities":["search","detail","resources"],"resource_kinds":["magnet"]},{"id":"one","type":"pikpak-rclone","kind":"downloader","capabilities":["submit"],"resource_kinds":["magnet"]},{"id":"two","type":"pikpak-rclone","kind":"downloader","capabilities":["submit"],"resource_kinds":["magnet"]}]}`)
+		case strings.HasSuffix(r.URL.Path, "/search"):
+			queries = append(queries, r.URL.Query().Get("q"))
+			fmt.Fprint(w, `{"items":[{"source_id":"catalog","id":"movie","title":"Example"}],"next_cursor":"2"}`)
+		case strings.HasSuffix(r.URL.Path, "/resources"):
+			fmt.Fprintf(w, `{"resources":[{"id":"resource","kind":"magnet","title":"Download","info_hash":"%s"}]}`, hash)
+		case strings.Contains(r.URL.Path, "/items/"):
+			fmt.Fprint(w, `{"source_id":"catalog","id":"movie","title":"Example","summary":"Description"}`)
+		case strings.HasSuffix(r.URL.Path, "/submissions"):
+			fmt.Fprintf(w, `{"status":"accepted","info_hash":"%s"}`, hash)
+		default:
+			t.Errorf("unexpected request %s", r.URL.Path)
+		}
+	}))
+	defer srv.Close()
+	c, _ := client.New(srv.URL)
+	m := newModel(context.Background(), c)
+	update := func(msg tea.Msg) tea.Cmd { next, cmd := m.Update(msg); m = next.(model); return cmd }
+	update(m.discover())
+	if !m.pluginsReady || m.sourceID() != "catalog" {
+		t.Fatal("plugins not loaded")
+	}
+	m.inputs[0].SetValue("query")
+	cmd := update(press(tea.KeyEnter))
+	update(cmd())
+	m.inputs[0].SetValue("edited but not searched")
+	cmd = update(press('n'))
+	update(cmd())
+	cmd = update(press('p'))
+	update(cmd())
+	if len(queries) != 3 || queries[1] != "query" || queries[2] != "query" {
+		t.Fatalf("pagination mixed search inputs: %v", queries)
+	}
+	cmd = update(press(tea.KeyEnter))
+	if cmd == nil || m.phase == "confirm" {
+		t.Fatal("item should load details before confirmation")
+	}
+	update(cmd())
+	if !m.resourceMode || !strings.Contains(m.status, "Description") {
+		t.Fatal("detail missing")
+	}
+	if cmd = update(press(tea.KeyEnter)); cmd != nil || m.phase != "confirm" {
+		t.Fatal("resource bypassed confirmation")
+	}
+	cmd = update(press('y'))
+	if update(press('y')) != nil {
+		t.Fatal("duplicate submission while busy")
+	}
+	update(cmd())
+	if !m.accepted["one:"+hash] {
+		t.Fatal("accepted identity missing downloader")
+	}
+	update(tea.KeyPressMsg{Code: 'd', Mod: tea.ModCtrl})
+	if m.downloaderID() != "two" {
+		t.Fatal("downloader selection failed")
+	}
+	update(press(tea.KeyEnter))
+	if m.phase != "confirm" {
+		t.Fatal("second downloader incorrectly suppressed")
+	}
+	cmd = update(press('y'))
+	update(cmd())
+	if !m.accepted["two:"+hash] {
+		t.Fatal("second downloader submission failed")
+	}
+	if calls[len(calls)-1] != "/api/v1/downloaders/two/submissions" {
+		t.Fatal(calls)
+	}
+	update(press(tea.KeyEsc))
+	if m.resourceMode || m.items[0].Title != "Example" {
+		t.Fatal("back to item list failed")
+	}
+	update(resourceSubmitDone{key: "unknown", result: core.Submission{Status: "unknown"}})
+	if m.accepted["unknown"] || !strings.Contains(m.status, "uncertain") {
+		t.Fatal("uncertain marked accepted")
+	}
+}
+
+func TestDiscoveryLocksSearchAndConfirmation(t *testing.T) {
+	c, _ := client.New("http://127.0.0.1:1")
+	m := newModel(context.Background(), c)
+	next, cmd := m.Update(press(tea.KeyEnter))
+	if cmd != nil || !next.(model).discoveryPending {
+		t.Fatal("search started before discovery")
+	}
+	next, _ = next.Update(pluginsDone{err: errors.New("offline")})
+	m = next.(model)
+	next, cmd = m.Update(press(tea.KeyEnter))
+	if cmd != nil {
+		t.Fatal("failed discovery fell back to legacy search")
+	}
+	next, cmd = next.Update(tea.KeyPressMsg{Code: 'r', Mod: tea.ModCtrl})
+	m = next.(model)
+	if cmd == nil || !m.discoveryPending {
+		t.Fatal("retry not locked")
+	}
+	next, _ = m.Update(pluginsDone{plugins: []core.Plugin{{ID: "one", Kind: "downloader"}, {ID: "two", Kind: "downloader"}}})
+	m = next.(model)
+	m.phase = "confirm"
+	m.downloaderIndex = 1
+	next, cmd = m.Update(tea.KeyPressMsg{Code: 'r', Mod: tea.ModCtrl})
+	if cmd != nil || next.(model).downloaderID() != "two" {
+		t.Fatal("confirmation target changed on refresh")
+	}
+}
+
+func TestPaginationFailurePreservesNavigationAndNewSearchClearsOldItems(t *testing.T) {
+	c, _ := client.New("http://127.0.0.1:1")
+	m := newModel(context.Background(), c)
+	m.discoveryPending = false
+	m.pluginsReady = true
+	m.sources = []core.Plugin{{ID: "source", Type: "javdb", Kind: "source"}}
+	m.sourceItems = []core.Item{{ID: "old", Title: "Old", SourceID: "source"}}
+	m.items = itemRows(m.sourceItems)
+	m.phase = "results"
+	m.currentCursor = "2"
+	m.previousCursors = []string{""}
+	m.nextCursor = "3"
+	for _, key := range []rune{'p', 'n'} {
+		next, cmd := m.Update(press(key))
+		if cmd == nil {
+			t.Fatal("missing navigation request")
+		}
+		next, _ = next.Update(pageDone{err: errors.New("failed")})
+		m = next.(model)
+		if m.currentCursor != "2" || len(m.previousCursors) != 1 || m.nextCursor != "3" || m.items[0].Title != "Old" {
+			t.Fatalf("failed page changed state: %+v", m)
+		}
+	}
+	next, _ := m.Update(press('/'))
+	m = next.(model)
+	m.inputs[0].SetValue("new query")
+	next, cmd := m.Update(press(tea.KeyEnter))
+	m = next.(model)
+	if cmd == nil || len(m.items) != 0 || m.nextCursor != "" || len(m.sourceItems) != 0 {
+		t.Fatal("new search kept old results/cursor")
+	}
+	next, _ = m.Update(pageDone{err: errors.New("failed")})
+	m = next.(model)
+	if len(m.items) != 0 || m.nextCursor != "" {
+		t.Fatal("failed new search restored stale results")
 	}
 }
