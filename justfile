@@ -6,6 +6,10 @@ default:
 build: frontend
     go build -o bin/metadonalds ./cmd/metadonalds
 
+# Install the executable with embedded frontend assets.
+install: frontend
+    go install ./cmd/metadonalds
+
 # Install frontend dependencies, check types, and build embedded assets.
 frontend:
     bun install --cwd frontend --frozen-lockfile

@@ -454,6 +454,7 @@ and CI. Install `just` with your package manager (on macOS: `brew install just`)
 ```sh
 just           # List tasks
 just build     # Server, browser launcher, and terminal executable
+just install   # Install metadonalds with go install
 just frontend  # Frontend dependencies, checks, and embedded assets
 just test      # Frontend tests and Go race tests
 ```
