@@ -21,7 +21,9 @@ func newCommand() *cobra.Command {
 	root := &cobra.Command{
 		Use: "metadonalds", Short: "Search data sources and submit resources to downloaders",
 		SilenceUsage: true, SilenceErrors: true,
+		Version: commandVersion(),
 	}
+	root.SetVersionTemplate("{{.Name}} {{.Version}}\n")
 	root.PersistentFlags().String("config", "", "TOML file (METADONALDS_CONFIG); default: ./config.toml, then XDG metadonalds/config.toml")
 	// Each binding refers to a flag defined immediately above it.
 	_ = settings.BindPFlag("config", root.PersistentFlags().Lookup("config"))

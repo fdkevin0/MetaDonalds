@@ -13,7 +13,8 @@ COPY cmd/ ./cmd/
 COPY ui/*.go ./ui/
 COPY internal/ ./internal/
 COPY --from=frontend /src/ui/dist ./ui/dist
-RUN CGO_ENABLED=0 go build -o /metadonalds ./cmd/metadonalds
+ARG VERSION=dev
+RUN CGO_ENABLED=0 go build -ldflags="-X main.version=${VERSION}" -o /metadonalds ./cmd/metadonalds
 
 FROM rclone/rclone:1.75.1 AS rclone
 

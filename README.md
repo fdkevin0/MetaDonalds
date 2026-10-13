@@ -462,6 +462,22 @@ Requires `just`, Bun 1.4.2, and the Go version in `go.mod`. `just build` produce
 `bin/metadonalds` with `serve`, `web`, and `tui`. The build embeds the
 frontend first. `just test` also runs the Go race detector.
 
+Use `metadonalds --version` to print the version without loading configuration or
+starting services. Without an injected version, it uses Go module build information
+when available (including a generated development version), otherwise `dev`.
+This also applies to `go install`. Release builds can inject a version:
+
+```sh
+go build -ldflags="-X main.version=v1.2.3" -o bin/metadonalds ./cmd/metadonalds
+# Or install using the same flag:
+go install -ldflags="-X main.version=v1.2.3" ./cmd/metadonalds
+```
+
+Build frontend assets first (for example, `just frontend`). Docker accepts
+`--build-arg VERSION=v1.2.3`; CI injects the Git tag for tag builds and the commit
+SHA for other image builds. Local Docker builds default to `dev`.
+
+
 The [justfile](justfile) is the shared task entry point for local development
 and CI. Install `just` with your package manager (on macOS: `brew install just`):
 

@@ -25,9 +25,9 @@ func temporaryConfigDiscovery(t *testing.T) string {
 	xdg.Reload()
 	return filepath.Join(home, "metadonalds", "config.toml")
 }
-func TestHelpDoesNotInitializeConfiguration(t *testing.T) {
+func TestHelpAndVersionDoNotInitializeConfiguration(t *testing.T) {
 	path := temporaryConfigDiscovery(t)
-	for _, args := range [][]string{{"--help"}, {"serve", "--help"}, {"web", "--help"}, {"tui", "--help"}} {
+	for _, args := range [][]string{{"--version"}, {"--help"}, {"serve", "--help"}, {"web", "--help"}, {"tui", "--help"}} {
 		cmd := newCommand()
 		cmd.SetArgs(args)
 		cmd.SetOut(io.Discard)
