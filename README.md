@@ -223,8 +223,22 @@ XDG_CONFIG_HOME="$HOME/.config" ./bin/metadonalds tui
 ```
 
 Only the first matching file is loaded; files are not merged. Explicit paths
-never fall back to automatic discovery. An invalid selected file fails startup;
-configuration files and directories are not created automatically.
+never fall back to automatic discovery. An invalid or unreadable selected file
+fails startup.
+
+When no explicit config path is given and every automatic candidate is absent,
+MetaDonalds initializes `$XDG_CONFIG_HOME/metadonalds/config.toml` (using the
+platform's user config directory when the variable is unset) and logs the actual
+path. New directories use mode `0700` and the file uses `0600` on Unix. Existing
+files are never overwritten, including when two commands start simultaneously.
+An existing system config still takes precedence over creating a new user config.
+
+The generated configuration uses the legacy Nyaa/PikPak defaults and listens on
+`127.0.0.1:8080`; the Compose example instead listens on `0.0.0.0:8080`.
+JavDB is not enabled automatically. Search remains available if rclone is missing;
+configure the PikPak remote before submitting downloads. A missing explicit
+`--config` or `METADONALDS_CONFIG` path remains an error. Help commands and clients
+that reuse an already healthy service do not create configuration files.
 
 Environment overrides are:
 
@@ -238,7 +252,7 @@ Environment overrides are:
 | `METADONALDS_PIKPAK_REMOTE` | `pikpak.remote` |
 | `METADONALDS_SERVER` | Client server origin (`tui/web --server` overrides it) |
 
-The file is still required when starting a backend. Unknown file keys and
+The selected or newly initialized file is validated before starting a backend. Unknown file keys and
 incorrect TOML value types are rejected even when overridden. Both standalone
 and automatically started servers drain active requests for up to five seconds
 on shutdown; the standalone server handles Ctrl+C and SIGTERM.
@@ -272,8 +286,8 @@ Automatic startup binds only to the loopback address and port in `--server`,
 overriding `server.listen_addr` for this run without changing the file. It
 supports `localhost` and loopback IP addresses. Unavailable remote or HTTPS
 origins return an error; an occupied port is never replaced. The client waits
-for readiness before opening its interface. Missing or invalid configuration
-is reported at startup. Use an absolute `--config` path when launching outside
+for readiness before opening its interface. Invalid configuration is reported at startup; absent automatic configuration
+is initialized as described above. Use an absolute `--config` path when launching outside
 the project directory.
 
 The client stops only the backend it started when it exits. Existing services

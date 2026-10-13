@@ -111,11 +111,11 @@ func TestConfigDiscovery(t *testing.T) {
 			t.Fatalf("config %q = %#v, %v", path, cfg, err)
 		}
 	}
-	if _, err := LoadConfig("", ""); err == nil {
-		t.Fatal("missing config accepted")
-	}
 	write(filepath.Join(second, "metadonalds", "config.toml"), "second")
 	check("", "second")
+	if _, err := os.Stat(filepath.Join(home, "metadonalds", "config.toml")); !os.IsNotExist(err) {
+		t.Fatal("system configuration should prevent user initialization")
+	}
 	write(filepath.Join(system, "metadonalds", "config.toml"), "system")
 	check("", "system")
 	write(filepath.Join(home, "metadonalds", "config.toml"), "home")

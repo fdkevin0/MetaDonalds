@@ -6,7 +6,6 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/adrg/xdg"
 	"github.com/fdkevin0/MetaDonalds/internal/backend"
 	"github.com/go-viper/mapstructure/v2"
 	"github.com/spf13/viper"
@@ -16,12 +15,10 @@ import (
 func LoadConfig(path, listenOverride string) (backend.Config, error) {
 	var cfg backend.Config
 	if path == "" {
-		path = "config.toml"
-		if _, err := os.Stat(path); os.IsNotExist(err) {
-			path, err = xdg.SearchConfigFile("metadonalds/config.toml")
-			if err != nil {
-				return cfg, fmt.Errorf("find configuration in current directory or XDG paths (use --config to specify a file): %w", err)
-			}
+		var err error
+		path, err = discoverConfig()
+		if err != nil {
+			return cfg, err
 		}
 	}
 	v := viper.New()
