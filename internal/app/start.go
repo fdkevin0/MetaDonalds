@@ -65,16 +65,11 @@ func Ensure(ctx context.Context, serverURL, configPath string) (func(), error) {
 		return nil, fmt.Errorf("create server log: %w", err)
 	}
 	logger := slog.New(slog.NewJSONHandler(logs, nil))
-	rclone, err := startRclone(ctx, cfg.PikPak.RCSocket, logger, logs)
-	if err != nil {
-		listener.Close()
-		logs.Close()
-		return nil, fmt.Errorf("cannot start local server (log: %s): %w", logs.Name(), err)
-	}
+	processes := startDownloaders(ctx, cfg, logger, logs)
 	lifetime, cancel := context.WithCancel(context.Background())
 	done := make(chan struct{})
 	go func() {
-		if err := serve(lifetime, listener, backend.Handler(cfg, logger), rclone); err != nil {
+		if err := serve(lifetime, listener, backend.Handler(cfg, logger), nil); err != nil {
 			logger.Error("HTTP server stopped", "error", err)
 		}
 		close(done)
@@ -82,6 +77,7 @@ func Ensure(ctx context.Context, serverURL, configPath string) (func(), error) {
 	stop := sync.OnceFunc(func() {
 		cancel()
 		<-done
+		stopDownloaders(processes)
 		logs.Close()
 	})
 	if err := waitHealthy(ctx, serverURL); err != nil {

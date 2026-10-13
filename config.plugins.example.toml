@@ -1,0 +1,27 @@
+# Explicit instances replace the legacy [nyaa]/[pikpak] configuration.
+[server]
+listen_addr = "127.0.0.1:8080"
+
+[plugins]
+# These optional defaults serve the legacy /api/v1/search and /api/v1/submit APIs.
+default_source = "nyaa"
+default_downloader = "personal"
+
+[[plugins.sources]]
+id = "nyaa"
+type = "nyaa"
+base_url = "https://nyaa.si/"
+f = 0
+c = "0_0"
+
+[[plugins.sources]]
+id = "catalog"
+type = "javdb"
+# base_url defaults to https://jdforrepam.com/api; anonymous read protocol.
+
+# For search-only operation, remove this entry and default_downloader above.
+[[plugins.downloaders]]
+id = "personal"
+type = "pikpak-rclone"
+rc_socket = "/tmp/metadonalds/rclone.sock"
+remote = "pikpak:My Pack"

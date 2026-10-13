@@ -10,6 +10,9 @@ import (
 )
 
 func TestConfig(t *testing.T) {
+	if _, err := LoadConfig("../../config.plugins.example.toml", ""); err != nil {
+		t.Fatalf("plugin example config: %v", err)
+	}
 	if _, err := LoadConfig("../../config.example.toml", ""); err != nil {
 		t.Fatalf("example config: %v", err)
 	}
@@ -130,5 +133,45 @@ func TestConfigDiscovery(t *testing.T) {
 	}
 	if _, err := LoadConfig("", ""); err == nil {
 		t.Fatal("invalid local file fell back to XDG")
+	}
+}
+
+func TestExplicitPluginsDisableLegacyAndValidateInstances(t *testing.T) {
+	legacy := "[server]\nlisten_addr='127.0.0.1:8080'\n[nyaa]\nbase_url='https://nyaa.si/'\n[pikpak]\nremote='pikpak:'\n"
+	for _, table := range []string{"[plugins]\n", "[plugins]\nsources=[]\ndownloaders=[]\n"} {
+		path := filepath.Join(t.TempDir(), "config.toml")
+		os.WriteFile(path, []byte(legacy+table), 0600)
+		cfg, err := LoadConfig(path, "")
+		if err != nil {
+			t.Fatal(err)
+		}
+		if cfg.Plugins == nil || len(cfg.Instances().Sources) != 0 || len(cfg.RCSockets()) != 0 {
+			t.Fatalf("explicit plugins fell back to legacy: %+v", cfg)
+		}
+	}
+	header := "[server]\nlisten_addr='127.0.0.1:8080'\n[plugins]\n"
+	for _, tc := range []struct {
+		name, body string
+		bad        bool
+	}{
+		{"search-only", "[[plugins.sources]]\nid='catalog'\ntype='javdb'\n", false},
+		{"multiple-shared-socket", "[[plugins.downloaders]]\nid='one'\ntype='pikpak-rclone'\nrc_socket='/tmp/rclone.sock'\nremote='pikpak:a'\n[[plugins.downloaders]]\nid='two'\ntype='pikpak-rclone'\nrc_socket='/tmp/rclone.sock'\nremote='pikpak:b'\n", false},
+		{"duplicate", "[[plugins.sources]]\nid='same'\ntype='javdb'\n[[plugins.sources]]\nid='same'\ntype='javdb'\n", true},
+		{"unknown-type", "[[plugins.sources]]\nid='a'\ntype='unknown'\n", true},
+		{"missing-default", "default_downloader='missing'\n", true},
+		{"bad-type", "[[plugins.sources]]\nid='a'\ntype='nyaa'\nbase_url='https://nyaa.si'\nf='1'\n", true},
+		{"unknown-key", "[[plugins.sources]]\nid='a'\ntype='javdb'\nsecret='x'\n", true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			path := filepath.Join(t.TempDir(), "config.toml")
+			os.WriteFile(path, []byte(header+tc.body), 0600)
+			cfg, err := LoadConfig(path, "")
+			if (err != nil) != tc.bad {
+				t.Fatalf("config err %v", err)
+			}
+			if tc.name == "multiple-shared-socket" && len(cfg.RCSockets()) != 1 {
+				t.Fatal("shared socket not deduplicated")
+			}
+		})
 	}
 }

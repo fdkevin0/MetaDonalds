@@ -30,6 +30,7 @@ func LoadConfig(path, listenOverride string) (backend.Config, error) {
 	if err := v.ReadInConfig(); err != nil {
 		return cfg, fmt.Errorf("read --config %q: %w", path, err)
 	}
+	hasPlugins := v.InConfig("plugins")
 	// Validate file types before enabling string-valued environment overrides.
 	if err := v.UnmarshalExact(&cfg, func(c *mapstructure.DecoderConfig) { c.WeaklyTypedInput = false }); err != nil {
 		return cfg, fmt.Errorf("invalid configuration %q: %w", path, err)
@@ -50,6 +51,9 @@ func LoadConfig(path, listenOverride string) (backend.Config, error) {
 	}
 	if err := v.UnmarshalExact(&cfg); err != nil {
 		return cfg, fmt.Errorf("invalid configuration: %w", err)
+	}
+	if hasPlugins && cfg.Plugins == nil {
+		cfg.Plugins = &backend.PluginConfig{}
 	}
 	return cfg, cfg.Validate()
 }

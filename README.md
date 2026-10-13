@@ -1,6 +1,6 @@
 # MetaDonalds
 
-Search Nyaa RSS and submit a chosen torrent infoHash to PikPak. No database or background queue: a successful submission means PikPak accepted the magnet, not that its download finished.
+Search enabled Nyaa or JavDB data sources, inspect an item and its magnet resources, then submit a chosen resource to a PikPak/rclone downloader instance. A small Go core connects compiled source and downloader plugins. No database or background queue: an accepted submission means rclone accepted the command, not that its download finished.
 
 ## Setup
 
@@ -29,6 +29,94 @@ Omitting them keeps the defaults above. These settings override any `f` or `c`
 in `base_url`; search requests can override either value with `f` and `c`.
 `q` comes from the search request and `page` is always `rss`.
 Restart MetaDonalds after changing the configuration.
+
+### Plugin instances
+
+The existing `[nyaa]` / `[pikpak]` configuration still works and creates instances
+named `nyaa` and `pikpak`. Adding a `[plugins]` table switches entirely to explicit
+instances; even an empty table disables the legacy fallback. A complete example is
+[config.plugins.example.toml](config.plugins.example.toml):
+
+```toml
+[server]
+listen_addr = "127.0.0.1:8080"
+
+[plugins]
+default_source = "nyaa"          # Optional: target for the legacy search endpoint.
+default_downloader = "personal" # Optional: target for the legacy submit endpoint.
+
+[[plugins.sources]]
+id = "nyaa"
+type = "nyaa"
+base_url = "https://nyaa.si/"
+f = 0
+c = "0_0"
+
+[[plugins.sources]]
+id = "catalog"
+type = "javdb"
+# base_url defaults to https://jdforrepam.com/api
+
+[[plugins.downloaders]]
+id = "personal"
+type = "pikpak-rclone"
+rc_socket = "/tmp/metadonalds/rclone.sock"
+remote = "pikpak:My Pack"
+```
+
+IDs are globally unique. `enabled = false` disables an instance; enabled defaults
+to true. Add another source or downloader entry for another site, remote or folder.
+Downloaders sharing a socket reuse one rclone process. Explicit downloader entries
+require an absolute `rc_socket`; legacy environment settings only affect legacy
+configuration. For search-only operation omit `plugins.downloaders` and
+`default_downloader`. `[plugins]` with `sources = []` and `downloaders = []`
+explicitly disables all plugins. Invalid types, duplicate IDs, unknown fields and
+invalid default references fail startup. A legacy `default_source` must be Nyaa;
+the new source endpoints work with every enabled source independently of defaults.
+
+JavDB is an anonymous adapter to the inspected public browser client's protocol,
+not a supported or versioned upstream contract. The endpoint, signature protocol
+and fields may change. This integration includes search, textual details and
+magnets only; no accounts, image decoding/proxy, video resolution or subtitles.
+Magnet `size` is displayed with `upstream units` because its unit is not established.
+A full upstream search page offers a next cursor; an extra empty last page is possible.
+Nyaa RSS has no durable details endpoint: its item identity is the infoHash, and
+clients preserve search metadata when opening the resource view.
+
+### Plugin API and extension boundary
+
+| Method | Path | Result |
+|---|---|---|
+| GET | `/api/v1/plugins` | Enabled instances and declared capabilities/resource types |
+| GET | `/api/v1/sources/{source}/search?q=...&cursor=...` | `items`, optional `next_cursor` |
+| GET | `/api/v1/sources/{source}/items/{id}` | One `Item` |
+| GET | `/api/v1/sources/{source}/items/{id}/resources` | `resources` |
+| POST | `/api/v1/downloaders/{downloader}/submissions` | Submission outcome |
+
+Nyaa search also accepts per-request `f` and `c`; other sources reject these
+filters. Cursors belong to the source and query that produced them. Submission
+body example:
+
+```json
+{"resource":{"id":"chosen","kind":"magnet","title":"Chosen resource","info_hash":"0123456789abcdef0123456789abcdef01234567"}}
+```
+
+A submission returns `status`, `info_hash` and optionally `message`. `accepted`
+is command acceptance, `rejected` is a confirmed refusal, and `unknown` requires
+checking the downloader before manually retrying. Invalid resources receive 422
+before any downloader request. Transport errors and ambiguous upstream responses
+are `unknown`; redirects never replay the RC submission. There is no persisted
+job, history, cross-restart deduplication or download-completion tracking.
+The legacy `/api/v1/search` and `/api/v1/submit` keep their existing contracts;
+without their configured defaults they return 503.
+
+`internal/core` owns content/resource/submission models and source/downloader
+capabilities. `internal/plugins/{nyaa,javdb,pikpak}` owns provider protocols;
+`internal/backend/handler.go` composes the configured instances. New compiled
+plugins add an implementation and configuration/registration, without modifying
+generic HTTP routes. Plugins are trusted in-process code, not dynamically loaded
+or sandboxed. A future player belongs in the client; future media resolution is
+a separate backend capability. No placeholder playback implementation is installed.
 
 ### Docker Compose
 
@@ -74,7 +162,7 @@ If the proxy runs on the host, use a host address reachable from the containers
 and have it listen on that interface; `127.0.0.1` inside a container refers to
 the container itself. Apply changes with `docker compose up -d`.
 
-These settings cover MetaDonalds' Nyaa requests and rclone's PikPak requests.
+These settings cover MetaDonalds' Nyaa and JavDB requests and rclone's PikPak requests.
 The Unix socket connection between the processes stays local. Downloads performed
 in PikPak's cloud do not pass through this proxy. Container environment variables
 also do not configure Docker's own GHCR image pulls.
@@ -102,8 +190,11 @@ are restricted to `0600`. A stale socket is removed only when connecting returns
 Active listeners, inaccessible paths, and non-socket files are never replaced.
 
 On normal shutdown, MetaDonalds drains HTTP requests before stopping and reaping
-its own rclone child. A reused rclone is left running. Unexpected child exit stops
-the HTTP service with an error; there is no automatic restart or submission retry.
+its own rclone children. A reused rclone is left running. Each distinct enabled
+downloader socket is started once. Startup failure or unexpected child exit is
+logged and leaves search available; submissions to that socket may be unavailable.
+There is no automatic restart or submission retry. With no enabled downloaders,
+the server does not require or launch rclone.
 RC readiness does not verify PikPak credentials or remote availability.
 
 Cobra provides one entry point: `metadonalds serve`, `metadonalds tui`, and

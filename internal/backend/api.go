@@ -2,6 +2,7 @@ package backend
 
 import (
 	"context"
+	"github.com/fdkevin0/MetaDonalds/internal/core"
 	"log/slog"
 	"net/http"
 	"strings"
@@ -13,10 +14,11 @@ import (
 )
 
 type server struct {
-	logger *slog.Logger
-	nyaa   NyaaConfig
-	search func(context.Context, NyaaConfig, string) ([]torrent, error)
-	submit func(context.Context, string) error
+	registry *core.Registry
+	logger   *slog.Logger
+	nyaa     NyaaConfig
+	search   func(context.Context, NyaaConfig, string) ([]torrent, error)
+	submit   func(context.Context, string) error
 }
 
 type searchInput struct {
@@ -92,6 +94,9 @@ func (s server) routes() http.Handler {
 		Description: "Search Nyaa RSS and rank results by seeders, trusted status, and remake status. Optional f and c override server configuration for this request only.",
 		Errors:      []int{http.StatusBadGateway},
 	}, func(ctx context.Context, in *searchInput) (*searchOutput, error) {
+		if s.search == nil {
+			return nil, huma.Error503ServiceUnavailable("No legacy Nyaa source configured")
+		}
 		cfg := s.nyaa
 		if in.fSet {
 			cfg.F = in.F
@@ -115,6 +120,9 @@ func (s server) routes() http.Handler {
 		Description:  "Submit an infoHash through rclone. Success means the command was accepted, not that the download finished. A timeout may leave the outcome uncertain; check PikPak before retrying. Maximum request body: 1024 bytes.",
 		MaxBodyBytes: 1024, Errors: []int{http.StatusBadRequest, http.StatusRequestEntityTooLarge, http.StatusUnsupportedMediaType, http.StatusBadGateway},
 	}, func(ctx context.Context, in *submitInput) (*submitOutput, error) {
+		if s.submit == nil {
+			return nil, huma.Error503ServiceUnavailable("No default downloader configured")
+		}
 		hash := strings.ToLower(in.Body.InfoHash)
 		logger.InfoContext(ctx, "submission started", "info_hash", hash)
 		if err := s.submit(ctx, hash); err != nil {
@@ -126,5 +134,8 @@ func (s server) routes() http.Handler {
 		out.Body.Status, out.Body.InfoHash = "submitted", hash
 		return out, nil
 	})
+	if s.registry != nil {
+		s.pluginRoutes(api)
+	}
 	return logRequests(mux, logger)
 }

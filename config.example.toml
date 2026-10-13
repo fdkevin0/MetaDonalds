@@ -10,3 +10,7 @@ c = "0_0"
 # rc_socket defaults to a per-user directory under the OS temporary directory.
 # Set an absolute path here to use a specific rclone socket.
 remote = "pikpak:My Pack"
+
+# To use multiple sources/downloaders, replace the legacy sections above with
+# [plugins] and [[plugins.sources]] / [[plugins.downloaders]] entries. See README.
+# An explicit [plugins] table disables legacy fallback, even when empty.
