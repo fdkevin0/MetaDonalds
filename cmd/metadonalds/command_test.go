@@ -17,7 +17,9 @@ func TestCommandParsing(t *testing.T) {
 		{[]string{}, "Available Commands", false},
 		{[]string{"serve", "--help"}, "--listen", false},
 		{[]string{"tui", "--help"}, "--server", false},
-		{[]string{"desktop", "--help"}, "--server", false},
+		{[]string{"web", "--help"}, "--server", false},
+		{[]string{"desktop"}, "unknown command", true},
+		{[]string{"web", "--server", "invalid"}, "server must be an HTTP(S) origin", true},
 		{[]string{"unknown"}, "unknown command", true},
 		{[]string{"serve", "extra"}, "unknown command", true},
 		{[]string{"serve", "--listen="}, "--listen must not be empty", true},
@@ -42,12 +44,5 @@ func TestCommandParsing(t *testing.T) {
 				t.Fatalf("output %q does not contain %q", output.String(), tc.want)
 			}
 		})
-	}
-	if !desktopAvailable {
-		cmd := newCommand()
-		cmd.SetArgs([]string{"desktop"})
-		if err := cmd.Execute(); err == nil || !strings.Contains(err.Error(), "-tags desktop") {
-			t.Fatalf("desktop error = %v", err)
-		}
 	}
 }

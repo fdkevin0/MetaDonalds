@@ -30,6 +30,7 @@ in `base_url`; search requests can override either value with `f` and `c`.
 `q` comes from the search request and `page` is always `rss`.
 Restart MetaDonalds after changing the configuration.
 
+
 ### Plugin instances
 
 The existing `[nyaa]` / `[pikpak]` configuration still works and creates instances
@@ -198,7 +199,7 @@ the server does not require or launch rclone.
 RC readiness does not verify PikPak credentials or remote availability.
 
 Cobra provides one entry point: `metadonalds serve`, `metadonalds tui`, and
-`metadonalds desktop`. Run `metadonalds --help` or a subcommand's `--help`
+`metadonalds web`. Run `metadonalds --help` or a subcommand's `--help`
 without a configuration file. Flags use two leading hyphens.
 
 Viper loads TOML with precedence: explicit flags > environment variables >
@@ -235,14 +236,14 @@ Environment overrides are:
 | `METADONALDS_NYAA_C` | `nyaa.c` |
 | `METADONALDS_PIKPAK_RC_SOCKET` | `pikpak.rc_socket` |
 | `METADONALDS_PIKPAK_REMOTE` | `pikpak.remote` |
-| `METADONALDS_SERVER` | Client server origin (`tui/desktop --server` overrides it) |
+| `METADONALDS_SERVER` | Client server origin (`tui/web --server` overrides it) |
 
 The file is still required when starting a backend. Unknown file keys and
 incorrect TOML value types are rejected even when overridden. Both standalone
 and automatically started servers drain active requests for up to five seconds
 on shutdown; the standalone server handles Ctrl+C and SIGTERM.
 
-## Web, desktop, and terminal interfaces
+## Browser and terminal interfaces
 
 Open `http://127.0.0.1:8080/` for the Svelte + TypeScript + Tailwind interface.
 It supports keyword search, per-request filter/category overrides, ranked
@@ -251,7 +252,7 @@ filters use the service configuration. API documentation remains at `/docs`.
 The production frontend is embedded in the Go binary; it needs no Node runtime
 or CDN. The Docker build compiles and embeds it automatically.
 
-The desktop and terminal apps check `/healthz` at startup. If the service is
+The web and terminal commands check `/healthz` at startup. If the service is
 already running, they reuse it without reading local configuration. If a local
 HTTP service is unavailable, they start the same Go backend inside the client
 process, using the configuration discovery order above. No separate server executable
@@ -269,29 +270,28 @@ The client stops only the backend it started when it exits. Existing services
 remain running. If a second client reuses the first client's backend, closing
 the first also disconnects the second; run `metadonalds serve` or Compose separately
 when you need a server with an independent lifetime. An automatically started
-backend also starts or reuses rclone as described above. rclone owns PikPak
+backend also starts or reuses rclone for enabled downloader instances as described above. rclone owns PikPak
 credentials and token refresh. `/healthz` checks the MetaDonalds HTTP server,
 not current rclone or PikPak availability.
 
-Build the Wails v3 desktop client after building the frontend:
+Open the web interface in your system's default browser:
 
 ```sh
-just desktop
-./bin/desktop/metadonalds desktop --config /path/to/config.toml
+just build
+./bin/metadonalds web --config /path/to/config.toml
 ```
 
-Wails is pinned to `v3.0.0-beta.28`. Native build prerequisites are described
-in the [Wails installation guide](https://v3.wails.io/getting-started/installation/).
-On macOS, install Xcode Command Line Tools; Windows requires WebView2; Linux
-requires the GTK/WebKit development packages listed by Wails. The `desktop`
-build tag keeps these requirements out of normal server and TUI builds.
-macOS builds target version 13.0, matching Go 1.27's minimum requirement.
-The justfile sets `MACOSX_DEPLOYMENT_TARGET`, `CGO_CFLAGS`, and `CGO_LDFLAGS`
-consistently on macOS. Use `just test-desktop` to test with the same settings;
-CI uses this recipe too.
-The command above produces a local executable, not a signed installer.
-The desktop app embeds the same frontend and forwards its two API routes to
-the configured service through Go, without requiring browser CORS changes.
+`web` prints the server URL after readiness, then opens it using `open` on macOS,
+`xdg-open` on Linux, or `rundll32` on Windows. Browser requests go directly to the
+service; there is no native window, proxy or separate desktop build. The command
+keeps running until Ctrl+C or SIGTERM. Closing the browser does not stop the
+service, and stopping the command does not close the browser. Only a server
+started by this command is stopped; a reused service remains running.
+
+If automatic browser opening fails (for example, in a headless environment),
+`web` reports the error and actual URL and keeps the service available for manual
+access until you stop the command. Unsupported operating systems get the same
+manual-open fallback. `web --help` does not load configuration or start a service.
 
 Run the Bubble Tea v2 + Bubbles terminal client:
 
@@ -322,7 +322,7 @@ bun run --cwd frontend dev
 ```
 
 Vite proxies `/api/` to the local service. Rebuild the frontend and Go binary
-to include changes in the production WebUI or desktop app.
+to include changes in the production WebUI.
 
 ## Container publishing
 
@@ -435,8 +435,7 @@ just test
 ```
 
 Requires `just`, Bun 1.4.2, and the Go version in `go.mod`. `just build` produces
-`bin/metadonalds` with `serve` and `tui`; `just desktop` produces
-`bin/desktop/metadonalds` with all three commands. Each target builds the
+`bin/metadonalds` with `serve`, `web`, and `tui`. The build embeds the
 frontend first. `just test` also runs the Go race detector.
 
 The [justfile](justfile) is the shared task entry point for local development
@@ -444,8 +443,7 @@ and CI. Install `just` with your package manager (on macOS: `brew install just`)
 
 ```sh
 just           # List tasks
-just build     # Server and terminal executable
-just desktop   # Executable with desktop support
+just build     # Server, browser launcher, and terminal executable
 just frontend  # Frontend dependencies, checks, and embedded assets
 just test      # Frontend tests and Go race tests
 ```

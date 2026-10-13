@@ -1,4 +1,4 @@
-// Package ui serves the shared browser and desktop frontend.
+// Package ui serves the browser frontend.
 package ui
 
 import (

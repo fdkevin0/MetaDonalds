@@ -29,8 +29,6 @@ jobs:
         with:
           just-version: '1.46.0'
       - run: just test build
-      - if: runner.os == 'macOS'
-        run: just --no-deps test-desktop desktop
 
   docker:
     needs: test

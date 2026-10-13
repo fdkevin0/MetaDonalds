@@ -7,6 +7,7 @@ import (
 	"github.com/fdkevin0/MetaDonalds/internal/app"
 	"github.com/fdkevin0/MetaDonalds/internal/client"
 	"github.com/fdkevin0/MetaDonalds/internal/tui"
+	"github.com/fdkevin0/MetaDonalds/internal/web"
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
 )
@@ -18,7 +19,7 @@ func newCommand() *cobra.Command {
 	settings.AutomaticEnv()
 	settings.AllowEmptyEnv(true)
 	root := &cobra.Command{
-		Use: "metadonalds", Short: "Search Nyaa and submit resources to PikPak",
+		Use: "metadonalds", Short: "Search data sources and submit resources to downloaders",
 		SilenceUsage: true, SilenceErrors: true,
 	}
 	root.PersistentFlags().String("config", "", "TOML file (METADONALDS_CONFIG); default: ./config.toml, then XDG metadonalds/config.toml")
@@ -49,17 +50,14 @@ func newCommand() *cobra.Command {
 		cmd := &cobra.Command{
 			Use: name, Short: description, Args: cobra.NoArgs,
 			RunE: func(cmd *cobra.Command, _ []string) error {
-				if name == "desktop" && !desktopAvailable {
-					return desktopUnavailable()
-				}
 				serverURL := options.GetString("server")
 				stop, err := app.Ensure(cmd.Context(), serverURL, settings.GetString("config"))
 				if err != nil {
 					return err
 				}
 				defer stop()
-				if name == "desktop" {
-					return runDesktop(cmd.Context(), serverURL, stop)
+				if name == "web" {
+					return web.Run(cmd.Context(), serverURL, cmd.ErrOrStderr())
 				}
 				return tui.Run(cmd.Context(), serverURL)
 			},
@@ -69,10 +67,6 @@ func newCommand() *cobra.Command {
 		root.AddCommand(cmd)
 	}
 	addUI("tui", "Open the terminal interface (auto-start local server if needed)")
-	addUI("desktop", "Open the desktop interface (requires a desktop build)")
+	addUI("web", "Open the web interface in your browser (auto-start local server if needed)")
 	return root
-}
-
-func desktopUnavailable() error {
-	return fmt.Errorf("desktop support is not included; build with: go build -tags desktop ./cmd/metadonalds")
 }
