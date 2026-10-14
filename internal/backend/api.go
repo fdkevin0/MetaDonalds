@@ -16,6 +16,7 @@ import (
 type server struct {
 	registry *core.Registry
 	logger   *slog.Logger
+	dav      http.Handler
 	nyaa     NyaaConfig
 	search   func(context.Context, NyaaConfig, string) ([]torrent, error)
 	submit   func(context.Context, string) error
@@ -137,5 +138,19 @@ func (s server) routes() http.Handler {
 	if s.registry != nil {
 		s.pluginRoutes(api)
 	}
-	return logRequests(mux, logger)
+	return logRequests(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if s.dav != nil {
+			if r.URL.Path == "/dav" {
+				r.Pattern = "/dav"
+				http.Redirect(w, r, "/dav/", http.StatusMovedPermanently)
+				return
+			}
+			if strings.HasPrefix(r.URL.Path, "/dav/") {
+				r.Pattern = "/dav/{path...}"
+				s.dav.ServeHTTP(w, r)
+				return
+			}
+		}
+		mux.ServeHTTP(w, r)
+	}), logger)
 }

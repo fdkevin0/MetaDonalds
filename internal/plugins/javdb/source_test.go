@@ -20,13 +20,18 @@ func TestAnonymousReadProtocol(t *testing.T) {
 			t.Error("invalid signature")
 		}
 		switch r.URL.Path {
+		case "/v1/movies/latest":
+			if r.URL.Query().Get("page") != "1" || r.URL.Query().Get("filter_by") != "all" {
+				t.Errorf("latest query: %s", r.URL.RawQuery)
+			}
+			fmt.Fprint(w, `{"success":1,"data":{"movies":[{"id":"abc","title":"Example","number":"EX-1","release_date":"2020-01-02"}]}}`)
 		case "/v2/search":
 			if r.URL.Query().Get("q") != "example" || r.URL.Query().Get("page") != "2" || r.URL.Query().Get("type") != "movie" {
 				t.Errorf("query: %s", r.URL.RawQuery)
 			}
 			fmt.Fprint(w, `{"success":1,"data":{"movies":[{"id":"abc","title":"Example","number":"EX-1","score":"3.84"}]}}`)
 		case "/v4/movies/abc":
-			fmt.Fprint(w, `{"success":1,"data":{"movie":{"id":"abc","title":"Example","summary":"Detail","score":"3.84"}}}`)
+			fmt.Fprint(w, `{"success":1,"data":{"movie":{"id":"abc","title":"Example","number":"EX-1","summary":"Detail","score":"3.84","cover_url":"https://example.org/cover.jpg","preview_video_url":"https://example.org/preview.m3u8","preview_images":[{"large_url":"https://example.org/sample.jpg"}]}}}`)
 		case "/v1/movies/abc/magnets":
 			fmt.Fprintf(w, `{"success":1,"data":{"magnets":[{"name":"Resource","hash":"%s","size":5120},{"hash":"bad"},{"hash":"%s"}]}}`, strings.ToUpper(hash), hash)
 		default:
@@ -44,6 +49,14 @@ func TestAnonymousReadProtocol(t *testing.T) {
 	if e != nil || item.Summary != "Detail" {
 		t.Fatalf("detail: %+v %v", item, e)
 	}
+	latest, e := s.Latest(ctx, 1)
+	if e != nil || len(latest.Items) != 1 || latest.Items[0].ID != "abc" || latest.Items[0].ReleaseDate != "2020-01-02" {
+		t.Fatalf("latest: %+v %v", latest, e)
+	}
+	media, e := s.Media(ctx, "abc")
+	if e != nil || media.Number != "EX-1" || len(media.PreviewImages) != 1 || media.PreviewImages[0].LargeURL != "https://example.org/sample.jpg" {
+		t.Fatalf("media: %+v %v", media, e)
+	}
 	rs, e := s.Resources(ctx, "abc")
 	if e != nil || len(rs) != 1 || rs[0].InfoHash != hash || rs[0].Size != "5120 (upstream units)" {
 		t.Fatalf("resources: %+v %v", rs, e)
@@ -54,7 +67,7 @@ func TestAnonymousReadProtocol(t *testing.T) {
 	if _, e = s.Search(ctx, "x", "https://other"); e == nil {
 		t.Fatal("URL cursor accepted")
 	}
-	if requests != 3 {
+	if requests != 4 {
 		t.Fatalf("unexpected request count: %d", requests)
 	}
 }

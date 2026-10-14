@@ -9,15 +9,16 @@ import (
 )
 
 type Item struct {
-	Tags     []string `json:"tags,omitempty"`
-	Size     string   `json:"size,omitempty"`
-	Seeders  int      `json:"seeders,omitempty"`
-	SourceID string   `json:"source_id"`
-	ID       string   `json:"id"`
-	Title    string   `json:"title"`
-	Code     string   `json:"code,omitempty"`
-	Summary  string   `json:"summary,omitempty"`
-	Score    string   `json:"score,omitempty"`
+	Tags        []string `json:"tags,omitempty"`
+	Size        string   `json:"size,omitempty"`
+	Seeders     int      `json:"seeders,omitempty"`
+	SourceID    string   `json:"source_id"`
+	ID          string   `json:"id"`
+	Title       string   `json:"title"`
+	Code        string   `json:"code,omitempty"`
+	ReleaseDate string   `json:"release_date,omitempty"`
+	Summary     string   `json:"summary,omitempty"`
+	Score       string   `json:"score,omitempty"`
 }
 type Page struct {
 	Items      []Item `json:"items"`

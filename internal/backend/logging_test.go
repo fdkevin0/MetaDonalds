@@ -5,11 +5,13 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"io"
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 )
 
 func TestOperationLogs(t *testing.T) {
@@ -116,5 +118,76 @@ func TestRequestLogs(t *testing.T) {
 				t.Fatalf("request details leaked: %s", output.String())
 			}
 		})
+	}
+}
+
+func TestDAVRequestLogs(t *testing.T) {
+	d, fake, _ := davFake(t)
+	var output bytes.Buffer
+	h := (server{dav: d, logger: slog.New(slog.NewJSONHandler(&output, nil))}).routes()
+	request := func(method, path, depth string) map[string]any {
+		t.Helper()
+		output.Reset()
+		r := httptest.NewRequest(method, path, nil)
+		r.Header.Set("Authorization", "Bearer private-authorization")
+		if depth != "" {
+			r.Header.Set("Depth", depth)
+		}
+		w := httptest.NewRecorder()
+		h.ServeHTTP(w, r)
+		var entry map[string]any
+		decoder := json.NewDecoder(bytes.NewReader(output.Bytes()))
+		for {
+			var line map[string]any
+			if err := decoder.Decode(&line); err == io.EOF {
+				break
+			} else if err != nil {
+				t.Fatalf("decode DAV request log: %v: %s", err, output.String())
+			}
+			if line["msg"] == "HTTP request" {
+				entry = line
+			}
+		}
+		if entry == nil {
+			t.Fatalf("missing DAV request summary: %s", output.String())
+		}
+		for _, private := range []string{"private-authorization", "private-query", "private-media-token", "G8xag"} {
+			if strings.Contains(output.String(), private) {
+				t.Fatalf("DAV request log leaked %q: %s", private, output.String())
+			}
+		}
+		if entry["route"] != "/dav/{path...}" || entry["status"] != float64(w.Code) || entry["bytes"] == nil || entry["duration_ms"] == nil {
+			t.Fatalf("incomplete DAV request log: %s", output.String())
+		}
+		return entry
+	}
+	path := "/dav/catalog/latest/0001-SSIS-006/metadata.json?token=private-query"
+	first := request("GET", path, "")
+	if first["dav_source"] != "catalog" || first["dav_section"] != "latest" || first["dav_resource"] != "metadata" || first["dav_item"] != "0001-SSIS-006" || first["dav_file"] != "metadata.json" || first["dav_listing_cache"] != "miss" || first["dav_list_items"] != float64(1) {
+		t.Fatalf("first DAV request log: %#v", first)
+	}
+	second := request("PROPFIND", "/dav/catalog/latest/", "1")
+	if second["dav_depth"] != "1" || second["dav_listing_cache"] != "hit" {
+		t.Fatalf("cached DAV request log: %#v", second)
+	}
+	searched := request("PROPFIND", "/dav/catalog/search/private-query/", "0")
+	if searched["dav_section"] != "search" || searched["dav_item"] != nil {
+		t.Fatalf("search path was not redacted: %#v", searched)
+	}
+	ordinalQuery := request("PROPFIND", "/dav/catalog/search/0001-private-query/", "0")
+	if ordinalQuery["dav_item"] != nil {
+		t.Fatalf("ordinal-shaped search query leaked: %#v", ordinalQuery)
+	}
+	media := request("GET", "/dav/catalog/latest/0001-SSIS-006/media/private-media-token", "")
+	if media["dav_item"] != "0001-SSIS-006" {
+		t.Fatalf("media log lacks safe item identity: %#v", media)
+	}
+	fake.failPage = 1
+	d.flat.mu.Lock()
+	d.flat.entries["movies:/catalog/latest"].expiresAt = time.Now().Add(-time.Second)
+	d.flat.mu.Unlock()
+	failed := request("PROPFIND", "/dav/catalog/latest/", "1")
+	if failed["status"] != float64(502) || failed["level"] != "ERROR" || failed["dav_listing_cache"] != "refresh" || failed["dav_failure_stage"] != "movies" || failed["dav_failure_category"] != "upstream" {
+		t.Fatalf("failed DAV request log: %#v", failed)
 	}
 }

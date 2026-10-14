@@ -16,6 +16,7 @@ import (
 func Handler(cfg Config, logger *slog.Logger) http.Handler {
 	c := &http.Client{Timeout: 15 * time.Second}
 	registry := core.NewRegistry()
+	catalogs := map[string]davCatalog{}
 	instances := cfg.Instances()
 	s := server{logger: logger, registry: registry}
 	for _, instance := range instances.Sources {
@@ -40,7 +41,9 @@ func Handler(cfg Config, logger *slog.Logger) http.Handler {
 			if base == "" {
 				base = javdb.DefaultURL
 			}
-			registry.AddSource(instance.ID, instance.Type, []string{"magnet"}, &javdb.Source{ID: instance.ID, BaseURL: base, Client: c})
+			source := &javdb.Source{ID: instance.ID, BaseURL: base, Client: c, Logger: logger}
+			registry.AddSource(instance.ID, instance.Type, []string{"magnet"}, source)
+			catalogs[instance.ID] = source
 		}
 	}
 	for _, d := range instances.Downloaders {
@@ -58,6 +61,9 @@ func Handler(cfg Config, logger *slog.Logger) http.Handler {
 				return nil
 			}
 		}
+	}
+	if len(catalogs) != 0 {
+		s.dav = newDAV(catalogs, nil, "")
 	}
 	return s.routes()
 }

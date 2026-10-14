@@ -81,8 +81,8 @@ the new source endpoints work with every enabled source independently of default
 
 JavDB is an anonymous adapter to the inspected public browser client's protocol,
 not a supported or versioned upstream contract. The endpoint, signature protocol
-and fields may change. This integration includes search, textual details and
-magnets only; no accounts, image decoding/proxy, video resolution or subtitles.
+and fields may change. Its API integration includes search, textual details and
+magnets; the read-only WebDAV view below also serves online pictures and video.
 Magnet `size` is displayed with `upstream units` because its unit is not established.
 A full upstream search page offers a next cursor; an extra empty last page is possible.
 Nyaa RSS has no durable details endpoint: its item identity is the infoHash, and
@@ -120,8 +120,125 @@ capabilities. `internal/plugins/{nyaa,javdb,pikpak}` owns provider protocols;
 `internal/backend/handler.go` composes the configured instances. New compiled
 plugins add an implementation and configuration/registration, without modifying
 generic HTTP routes. Plugins are trusted in-process code, not dynamically loaded
-or sandboxed. A future player belongs in the client; future media resolution is
-a separate backend capability. No placeholder playback implementation is installed.
+or sandboxed. The WebDAV view uses the enabled JavDB source's media details and
+resolves online video separately from downloader resources.
+
+### Read-only WebDAV for online JavDB media
+
+With an enabled JavDB source, connect a WebDAV file browser to
+`http://127.0.0.1:8080/dav/` (substitute the service's reachable address and
+port). In macOS Finder use **Go → Connect to Server** (`Cmd+K`) and enter that
+URL. Finder can browse and copy files; playback of `.m3u8` files needs a player
+that understands HLS and its relative segment paths. Finder itself was not
+tested on macOS. If you listen on a LAN address, this same unauthenticated,
+read-only DAV endpoint is reachable by other devices on that LAN; use a trusted
+network or an authenticated reverse proxy for broader exposure.
+
+The default `catalog` source appears at `/dav/catalog/` (explicit JavDB instance
+IDs appear under their configured names):
+
+```text
+/dav/catalog/latest/0001-SSIS-006/
+/dav/catalog/search/SSIS/0001-SSIS-006/
+/dav/catalog/categories/censored/0001-SSIS-006/
+/dav/catalog/categories/censored/tags/<group-name [ID]>/<tag-name [ID]>/0001-SSIS-006/
+/dav/catalog/rankings/playback/all/daily/0001-SSIS-006/
+/dav/catalog/rankings/top250/all/0001-SSIS-006/
+/dav/catalog/actors/censored/0001-<actor-name [ID]>/0001-SSIS-006/
+/dav/catalog/series/censored/0001-<series-name [ID]>/0001-SSIS-006/
+/dav/catalog/makers/censored/0001-<maker-name [ID]>/0001-SSIS-006/
+```
+
+`latest/` combines up to 10 upstream pages and `search/<query>/` combines up
+to 99 into a single directory. Open the query folder directly; URL-encode the
+query as one path segment, for example `search/SSIS-006/` or
+`search/%E6%A4%9C%E7%B4%A2/`. `search/README.txt` describes this on the
+mount. Movie folders are numbered in upstream order, such as `0001-SSIS-006/`.
+They use the JavDB code (番号), falling back to its ID if the code is missing,
+unsafe, duplicated in the listing, or clashes with another item's ID. The old
+page folders, `items/<ID>/` route, and unnumbered ID aliases are unavailable.
+Categories contain four
+types (`censored`, `uncensored`, `western`, `fc2`) and browsable tag groups.
+Rankings contain `playback` and `score` periods (`daily`, `weekly`, `monthly`)
+plus the public TOP250 snapshot. Playback offers `all` and `high_score`
+filters; score and TOP250 use movie types. Category and tag folders combine up
+to 99 pages; TOP250 combines up to five. Actor, series, and maker directories
+list numbered named folders and expose each entity's movies directly. These browse folders read online
+data and may be empty or unavailable when the public upstream is unavailable.
+An item contains `metadata.json`, `cover.jpg`, `images/` when available,
+`preview.m3u8` when JavDB supplies a preview, and `stream/` for online video
+resolution. `stream/` resolves through the reference site's public
+`/api/v/resolve` endpoint when opened; a failed or unavailable resolution gives
+an error there while metadata, images and previews remain browsable. A resolved
+HLS source is a real `.m3u8` playlist with local relative links to playlists,
+segments, keys and maps; a source shown as `.mp4` is exposed only when the
+upstream supplies an actual MP4 with a known length. No magnet is treated as a
+video file. Browsing DAV never submits to PikPak or downloads a magnet.
+
+Pictures are decoded from JavDB's public image encoding before serving. Media
+links are short-lived upstream URLs, so reopen a playlist if a segment expires;
+generated local links stay in memory for up to four hours after their last use
+and are lost on service restart. MetaDonalds does not store complete videos or
+transcode HLS. An unavailable upstream returns an error instead of an empty
+file. The reference site's public resolver is an unversioned dependency; full
+video availability can change independently of JavDB's `can_play` flag.
+Successful JavDB API JSON responses and TOP250 snapshots are cached in memory
+for five minutes (at most 128 responses and 16 MiB total); errors and invalid
+responses are not cached. Listings and details may lag changes upstream by up
+to five minutes, and the cache clears on service restart. Cover and preview
+URLs contained in cached detail JSON follow the same five-minute TTL. Resolver
+responses, video bytes, and HLS playlists are outside this API cache. The
+flattened DAV directories have a separate five-minute snapshot cache capped at
+32 listings, 16 MiB, and 9,999 entries per listing. A refresh may take up to
+60 seconds; an upstream failure returns an error instead of a partial listing.
+Static DAV directories use the service start time as their modification time;
+loaded browse directories use their snapshot time. Movie folders and their
+metadata, cover, sample images, playlists, and streamed files display the
+movie's release date when JavDB supplies a valid date, falling back to the
+listing snapshot time. Generated files have a content-based ETag on GET, HEAD,
+and PROPFIND, so a changed file can be detected even if its displayed date and
+size stay the same. For generated files, an HTTP `Last-Modified` header is
+omitted when the displayed date is in the future. Date-only
+`If-Modified-Since`, `If-Unmodified-Since`, and `If-Range` requests do not use
+the historical release date as a content validator. Video and HLS segment
+proxy responses retain the upstream HTTP validators.
+
+Each DAV response has an `X-Trace-ID` header. The JSON request log uses that
+`trace_id` with a root `span_id`; DAV listing, JavDB API cache, upstream HTTP,
+response validation, image, HLS, resolver, and proxy stages log their own
+`span_id`, `parent_span_id`, outcome, duration in milliseconds, and relevant
+status, byte count, or item count. For example, copy an `X-Trace-ID` value from
+a failed response and search the service logs for that exact `trace_id`. A
+cache wait can contain `linked_trace_id`: follow that ID to see the separate
+shared fetch, which may continue after the original request ends. The request
+summary reports the numbered movie folder, section, file class, response
+status and bytes, `dav_listing_cache` outcome, and safe failure category.
+Search terms, media tokens, signed URLs, authorization headers, and raw
+upstream errors are omitted from trace and request logs. The
+anonymous JavDB upstream can return HTTP 403, in which case browse folders
+cannot load; this service does not have credentials to bypass that response.
+After installing or building a new MetaDonalds binary, restart the service to
+serve these paths.
+
+rclone can consume this DAV view as a separate WebDAV remote. For an ad hoc
+read-only check without editing your rclone configuration:
+
+```sh
+rclone --webdav-url http://127.0.0.1:8080/dav/ --webdav-vendor other lsf :webdav:catalog/latest/
+rclone --webdav-url http://127.0.0.1:8080/dav/ --webdav-vendor other cat :webdav:catalog/latest/0001-SSIS-006/metadata.json
+```
+
+To mount it, configure a WebDAV remote with URL ending in `/dav/`, then run
+`rclone mount --read-only <remote>: <mountpoint>` on a system with FUSE support.
+The rclone RC `operations/list` command can inspect the same configured remote;
+it does not need access to MetaDonalds' private PikPak RC socket. rclone's
+[WebDAV backend](https://rclone.org/webdav/) reads a WebDAV endpoint, while
+[RC `serve/start`](https://rclone.org/rc/#serve-start-create-a-new-server)
+serves an existing rclone filesystem and cannot create the JavDB catalog.
+The test suite runs real rclone `lsf`, `cat` (including decoded images and HLS
+keys/segments), RC `operations/list`, and `rclone serve http` through its VFS
+against a local fake DAV server, including a nested HLS segment. This workspace
+has no `/dev/fuse`, so an actual `rclone mount` was not tested here.
 
 ### Docker Compose
 
@@ -167,7 +284,10 @@ If the proxy runs on the host, use a host address reachable from the containers
 and have it listen on that interface; `127.0.0.1` inside a container refers to
 the container itself. Apply changes with `docker compose up -d`.
 
-These settings cover MetaDonalds' Nyaa and JavDB requests and rclone's PikPak requests.
+These settings cover MetaDonalds' Nyaa and JavDB API requests and rclone's PikPak
+requests. The DAV media fetcher connects directly and checks the resolved public
+address at each connection and redirect, so media fetches do not use these proxy
+settings.
 The Unix socket connection between the processes stays local. Downloads performed
 in PikPak's cloud do not pass through this proxy. Container environment variables
 also do not configure Docker's own GHCR image pulls.
