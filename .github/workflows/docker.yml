@@ -21,10 +21,10 @@ jobs:
           go-version-file: go.mod
       - uses: oven-sh/setup-bun@v2
         with:
-          bun-version: '1.4.2'
+          bun-version: '1.4.3'
       - uses: extractions/setup-just@v4
         with:
-          just-version: '1.46.0'
+          just-version: '1.58.0'
       - name: Install the Docker-pinned rclone for integration tests
         shell: bash
         run: |

@@ -8,7 +8,7 @@ Build frontend assets before the local Go suite (also required on a fresh checko
 just test
 ```
 
-Requires `just`, Bun 1.4.2, and the Go version in [go.mod](../go.mod). `just build` produces
+Requires `just`, Bun 1.4.3, and the Go version in [go.mod](../go.mod). `just build` produces
 `bin/metadonalds` with `serve` (including `--open`) and `tui`. The build embeds the
 frontend first. `just test` also runs the Go race detector.
 
@@ -41,6 +41,8 @@ just test      # Frontend tests and Go race tests
 Frontend installs use the committed `frontend/bun.lock` with `--frozen-lockfile`.
 The frontend build includes Svelte/TypeScript checks and tests run with `bun test`.
 Frontend tool versions are pinned in [package.json](../frontend/package.json).
+Keep TypeScript on 6 until `svelte-check` supports a stable upgrade; its current
+TypeScript 7 mode requires a second compiler package and experimental flags.
 Tests use fake HTTP responses and temporary files; they need no running services
 or account credentials. Local WebDAV integration tests require rclone and skip
 when it is absent; CI requires them to run.
