@@ -16,7 +16,7 @@ COPY --from=frontend /src/ui/dist ./ui/dist
 ARG VERSION=dev
 RUN CGO_ENABLED=0 go build -ldflags="-X main.version=${VERSION}" -o /metadonalds ./cmd/metadonalds
 
-FROM rclone/rclone:1.75.1 AS rclone
+FROM rclone/rclone:1.75.2 AS rclone
 
 FROM alpine:3.24
 RUN apk add --no-cache ca-certificates
