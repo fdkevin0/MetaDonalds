@@ -1,6 +1,6 @@
 ---
 name: feature-gatekeeper
-description: Coordinate feature development through an Astra gatekeeper in the current session, delegated implementation, and an independent review-and-fix loop. Use when developing a feature with managed subagents and a review gate.
+description: Coordinate feature implementation with developer subagents and independent review when a managed review gate is requested.
 ---
 
 # Feature Gatekeeper
@@ -17,43 +17,36 @@ Verify the current model through runtime metadata or an available session API. A
 
 Check available model identifiers and native subagent capabilities before spawning. If the requested model is unavailable, explain the limitation and obtain the user's choice of fallback. Do not silently perform both implementation and review in the gatekeeper when delegation is unavailable.
 
-## Establish the feature contract
+## Implementation and review
 
-Read applicable `AGENTS.md` instructions and the code relevant to the feature. Establish:
+Define the requested behavior, acceptance criteria, affected scope, and relevant
+validation from the task and repository. Preserve a baseline of existing changes
+so the reviewer can distinguish this task's edits without resetting user work.
+Keep compact working notes on the baseline, assignments, current change,
+validation, and unresolved findings for handoffs and resumption.
 
-- Expected behavior, acceptance criteria, and any material unanswered question.
-- The callers, tests, fixtures, configuration, and documentation the change must reach.
-- Relevant validation commands and existing workspace changes to preserve.
+Delegate implementation with a self-contained brief: requirements, repository,
+edit scope, baseline, and validation. When selecting a model through
+`collaboration.spawn_agent`, use `fork_turns="none"`. Reuse agents for follow-up
+work. The gatekeeper manages developer and reviewer directly; neither delegates
+further. Keep one writer per overlapping scope and stop edits during review.
 
-Record the starting revision and working-tree state. In a dirty tree, preserve a baseline of relevant existing changes so the reviewer can distinguish this task's edits from earlier work. Do not reset, stash, or overwrite user changes to manufacture a clean baseline.
+After implementation and affected checks, give a separate reviewer the original
+requirements, complete current change (including untracked files), baseline, and
+validation evidence. Review is read-only and includes connected code and
+regressions. Findings identify locations, impact, and required validation;
+approval identifies the reviewed state and verification limits.
 
-Maintain a compact task ledger in the gatekeeper's working notes: acceptance criteria, baseline, subagent IDs and roles, selected models, file ownership, current iteration/revision, check results, and unresolved findings. Update it after each handoff so resumed work does not duplicate subagents or accept stale results.
+Adjudicate findings against the task using code/test evidence. Send accepted
+findings to the developer, then re-review the resulting change for closure and
+regressions. Record why a finding is dismissed; ask about material scope changes
+only when existing authorization does not resolve them. Continue through fixes
+and review without stopping for approval of routine local work.
 
-## Delegate implementation
-
-Create one developer subagent initially. Reuse it for subsequent fixes so it retains implementation context. Supply the feature contract, repository path, relevant instructions, baseline, permitted edit scope, validation expectations, and gatekeeper ID. The developer implements and validates the complete change, then reports back; it does not declare the overall feature complete or create its own review hierarchy.
-
-Use `collaboration.spawn_agent` with an explicit `model` and `fork_turns="none"` when selecting a subagent model. Supply a self-contained brief because this mode does not inherit conversation history. The gatekeeper creates and manages both developer and reviewer directly; neither subagent delegates further.
-
-Keep one writer for overlapping files. Add developers only for independently owned work that benefits from parallel execution; integrate their results before review. Never let a developer edit the reviewed files while the reviewer is inspecting them.
-
-## Notifications and review loop
-
-Use actual subagent messages or delivered completion events, not an assumption that another agent saw a status update. Every handoff includes the task/iteration, revision or reproducible diff snapshot, status, evidence, and next owner. Track uncommitted and untracked task files as part of the snapshot; a commit hash alone does not identify a dirty tree.
-
-1. The developer sends **IMPLEMENTATION_READY** to the gatekeeper with changed files, behavior delivered, tests and outcomes, and any blockers or known limitations. It then stops editing pending follow-up.
-2. After implementation is ready, the gatekeeper creates a separate reviewer subagent. Give it the original requirements, baseline, complete current change, relevant repository instructions, and validation evidence. Provide both gatekeeper and developer IDs. Do not bias its verdict with a requested approval or the developer's conclusions.
-3. The reviewer stays read-only and inspects connected code and acceptance criteria, not only the diff. If available, read and apply `ponytail:ponytail-review` or `ponytail-review` from the installed skill catalog. That skill supplements review; it must not narrow away correctness, regressions, error handling, or missing requirements. If unavailable, perform those checks directly.
-4. The reviewer sends **REVIEW_CHANGES_REQUESTED**, **REVIEW_APPROVED**, or **BLOCKED** to the gatekeeper and notifies the developer. Findings include stable IDs, file locations, concrete impact, and the validation needed to close them. Approval identifies the exact reviewed snapshot and any remaining verification limits.
-5. The gatekeeper evaluates each finding against the contract. Send actionable findings to the developer, including the finding IDs and reviewer ID. Resolve disagreements with code or test evidence; record why a finding is invalid or out of scope rather than silently dropping it. If scope must change, obtain the user's decision.
-6. The developer fixes the accepted findings, runs affected checks, and sends **FIXES_READY** to the gatekeeper and reviewer, mapping each finding to its fix and evidence. The gatekeeper confirms that editing has stopped and dispatches re-review of the new snapshot.
-7. Reuse the reviewer for re-review so it checks both finding closure and regressions introduced by fixes. Repeat until the reviewer approves the current complete change and the gatekeeper's completion conditions hold.
-
-Use `collaboration.send_message` for notifications and `collaboration.followup_task` to assign fixes or re-review to an existing idle subagent; a notification alone does not start a new turn. Subagent final responses are delivered to the gatekeeper automatically. Peer notifications report status; only the gatekeeper authorizes the next implementation or review phase. Use `collaboration.wait_agent` to await results and check the ledger when messages arrive. Ignore duplicate or stale completion events for acceptance, and never mistake a tool/subagent failure for review approval.
-
-Keep the user informed of meaningful progress and blockers while subagents work. On a stalled or failed subagent, use `collaboration.list_agents` to inspect its status and preserve its work before restarting or reassigning. Use `collaboration.interrupt_agent` to stop the old writer before authorizing a replacement. The gatekeeper may increase reasoning effort or choose a stronger model when a failure demonstrates the need.
-
-Do not assume subagents survive closure of the parent session. When resuming, check which agents still exist and reconstruct missing assignments from the ledger before continuing.
+Use `collaboration.followup_task` to restart idle agents for fixes or re-review;
+`send_message` alone does not start a turn. Track which change each result covers;
+a stale result or tool failure is not approval. On resumption or agent failure,
+check live assignments and stop an old writer before replacing it.
 
 ## Completion and stopping conditions
 
@@ -66,7 +59,7 @@ Before announcing completion, verify that:
 - The reviewer approved that same state, with every finding fixed or explicitly adjudicated using evidence.
 - No subagent is still editing or carrying an unresolved assignment.
 
-Do not retry an unchanged failure indefinitely. If the same blocker or disputed finding survives two fix/review cycles without new evidence, reassess the cause and change the assignment, model, or approach. If progress requires unavailable access, an external dependency, or a product decision, report the specific blocker and leave the feature incomplete. Required checks that cannot run are blockers unless the user explicitly accepts a revised completion condition.
+Do not retry an unchanged failure indefinitely. If a blocker repeats without new evidence, reassess the cause and change the assignment, model, or approach. If progress requires unavailable access, an external dependency, or a product decision, report the specific blocker and leave the feature incomplete. Required checks that cannot run are blockers unless the user explicitly accepts a revised completion condition.
 
 In MetaDonalds, follow `AGENTS.md` for validation. Local tests use fakes; live submissions and image publishing require explicit task scope. A timed-out submission may already have succeeded, so never use automatic submission retries as a review or validation technique.
 

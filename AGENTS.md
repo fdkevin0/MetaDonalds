@@ -1,37 +1,39 @@
 # Working on MetaDonalds
 
-MetaDonalds is a single Go service with compiled source and downloader plugins.
-It searches Nyaa/JavDB and submits magnet resources to PikPak through rclone. It has no database or background queue.
+MetaDonalds is one Go service with compiled Nyaa/JavDB source plugins and a
+PikPak/rclone downloader. It has no download job database or submission queue;
+WebDAV directory caching has background refresh and optional disk persistence.
 
 ## Read as needed
 
-- For setup and API usage, use [README.md](README.md).
-- For HTTP contracts, use `internal/backend/api.go` and `internal/backend/plugins_api.go`;
-  for shared models/capabilities use `internal/core`, and for plugin assembly use
-  `internal/backend/handler.go`. Source adapters live in `internal/plugins/nyaa`
-  and `internal/plugins/javdb`.
-- For PikPak submission, use `internal/plugins/pikpak`. The rclone RC client connects over a
-  Unix socket, and rclone owns credentials and token refresh.
-- For commands (`serve`, `serve --open`, `tui`), use `cmd/metadonalds`; for startup and
-  shutdown, use `internal/app`. Browser launching is in `internal/web`; it must
-  not close the browser on service exit. Only `tui` reuses healthy services;
-  `serve` always owns its listener.
-- For configuration loading, use `internal/app/config.go`; for validation, use
-  `internal/backend/config.go`. Plugin instances are shown in `config.example.toml`. For container or release
-  changes, use `compose.yaml`, `Dockerfile`, and `.github/workflows/docker.yml`.
+- Setup and user-facing behavior: [README.md](README.md) routes to topic guides.
+- HTTP contracts: `internal/backend/api.go`, `internal/backend/plugins_api.go`;
+  shared models and capabilities: `internal/core`; plugin assembly:
+  `internal/backend/handler.go`. Provider protocols live in `internal/plugins`.
+- WebDAV paths/media: `internal/backend/dav*.go`; directory caching and persistence:
+  `internal/backend/dav_flat*.go`; operational behavior: [docs/webdav.md](docs/webdav.md).
+- Commands and service ownership: `cmd/metadonalds`, `internal/app`;
+  browser launching: `internal/web`; clients: `internal/tui`, `frontend/src`.
+- Configuration: `internal/app/config.go`, `internal/backend/config.go`,
+  [config.example.toml](config.example.toml). Build/release: `justfile`,
+  `compose.yaml`, `Dockerfile`, `.github/workflows/docker.yml`.
 
-## Behavior and validation
+## Invariants and validation
 
-A successful submission means rclone accepted the command, not that a download
-finished. A timeout can leave the outcome uncertain; do not add automatic
-submission retries without accounting for duplicate requests.
+Submission acceptance is not download completion. A timeout may leave the outcome
+unknown; automatic retries can create duplicates. rclone owns credentials and
+refreshes tokens; the RC client connects through a private Unix socket.
 
-`just test` builds frontend assets and runs frontend tests and `go test -race ./...`.
-Go tests use HTTP fakes and temporary files, with no live Nyaa/JavDB or PikPak
-access. WebDAV integration tests run real rclone against local fakes; CI requires rclone. Run relevant tests, fix failures caused by the change,
-and rerun them without seeking approval at each step. Documentation-only edits
-normally need link and accuracy checks, not the Go suite.
+Only `tui` reuses a healthy service; `serve` owns its listener. Browser lifetime
+is independent of the service. DAV browsing never submits downloader jobs.
 
-Carry the requested change through relevant validation and report any remaining
-blocker. Local tests do not require live submissions or image publishing; perform
-those external actions only when they are part of the user's requested scope.
+`just test` builds frontend assets, runs frontend tests and `go test -race ./...`.
+Tests use local HTTP fakes and temporary files without live provider access.
+WebDAV integration tests use real rclone against fakes; CI requires rclone, while
+local runs skip those tests if it is absent. Run affected checks, fix failures
+caused by the change, and rerun without approval at each step. Documentation-only
+changes need accuracy/link checks rather than the Go suite.
+
+Complete the requested work through relevant validation and report remaining
+blockers. Live submissions and image publishing belong only to tasks that request
+those actions.
