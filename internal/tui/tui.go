@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"slices"
 	"strings"
 	"unicode"
 
@@ -15,37 +16,27 @@ import (
 	"github.com/fdkevin0/MetaDonalds/internal/core"
 )
 
-type searchDone struct {
-	items []client.Torrent
-	err   error
-}
-
-type submitDone struct {
-	hash string
-	err  error
-}
-
 type model struct {
 	pendingHistory []string
 
 	activeQuery, activeF, activeC, currentCursor string
 	previousCursors                              []string
 
-	pluginsReady, discoveryFailed, discoveryPending bool
-	sources, downloaders                            []core.Plugin
-	sourceIndex, downloaderIndex                    int
-	sourceItems                                     []core.Item
-	resources                                       []core.Resource
-	resourceMode                                    bool
-	detail                                          core.Item
-	nextCursor                                      string
+	discoveryFailed, discoveryPending bool
+	sources, downloaders              []core.Plugin
+	sourceIndex, downloaderIndex      int
+	sourceItems                       []core.Item
+	resources                         []core.Resource
+	resourceMode                      bool
+	detail                            core.Item
+	nextCursor                        string
 
 	client        *client.Client
 	ctx           context.Context
 	inputs        []textinput.Model
 	focus         int
 	table         table.Model
-	items         []client.Torrent
+	items         []core.Item
 	cursor, top   int
 	phase         string
 	busy          bool
@@ -65,7 +56,7 @@ func newModel(ctx context.Context, c *client.Client) model {
 	inputs[0].Focus()
 	return model{ctx: ctx, client: c, discoveryPending: c != nil, inputs: inputs, phase: "form", accepted: map[string]bool{}, width: 90, height: 28,
 		table:  table.New(table.WithColumns(columns(90)), table.WithWidth(88), table.WithHeight(10), table.WithFocused(true)),
-		status: "Search Nyaa, choose a result, then confirm submission to PikPak."}
+		status: "Loading source and downloader instances…"}
 }
 
 func columns(width int) []table.Column {
@@ -88,33 +79,6 @@ func (m model) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 		for i := range m.inputs {
 			m.inputs[i].SetWidth(max(10, msg.Width-8))
 		}
-	case searchDone:
-		m.busy = false
-		if msg.err != nil {
-			m.status = "Search failed: " + plain(msg.err.Error())
-			return m, nil
-		}
-		m.items = msg.items
-		m.top = 0
-		m.selectRow(0)
-		if len(msg.items) == 0 {
-			m.status = "No results. Try another query or filter."
-		} else {
-			m.phase = "results"
-			m.inputs[m.focus].Blur()
-			m.status = fmt.Sprintf("%d results. Enter selects a resource; / edits your search.", len(msg.items))
-		}
-		return m, nil
-	case submitDone:
-		m.busy = false
-		m.phase = "results"
-		if msg.err != nil {
-			m.status = "Outcome uncertain. Check PikPak before retrying; no automatic retry. " + plain(msg.err.Error())
-		} else {
-			m.accepted[msg.hash] = true
-			m.status = "Command accepted. This does NOT mean the download finished; check PikPak."
-		}
-		return m, nil
 	case tea.MouseClickMsg:
 		if m.busy || m.discoveryPending || m.width < 60 || m.height < 20 || msg.Button != tea.MouseLeft || msg.X < 0 || msg.X >= m.width-2 {
 			return m, nil
@@ -171,7 +135,7 @@ func (m model) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 			m.discoveryPending = true
 			return m, m.discover
 		}
-		if m.pluginsReady && m.phase != "confirm" && (key == "ctrl+s" || key == "ctrl+d") {
+		if m.phase != "confirm" && (key == "ctrl+s" || key == "ctrl+d") {
 			if key == "ctrl+s" && len(m.sources) > 0 {
 				m.sourceIndex = (m.sourceIndex + 1) % len(m.sources)
 				m.items = nil
@@ -204,34 +168,30 @@ func (m model) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 					m.status = "Plugin discovery failed. Ctrl+R retries."
 					return m, nil
 				}
-				if m.pluginsReady && len(m.sources) == 0 {
+				if len(m.sources) == 0 {
 					return m, nil
 				}
 				m.busy = true
 				m.status = "Searching…"
-				if m.pluginsReady {
-					m.activeQuery, m.activeF, m.activeC = m.inputs[0].Value(), strings.TrimSpace(m.inputs[1].Value()), strings.TrimSpace(m.inputs[2].Value())
-					m.currentCursor = ""
-					m.previousCursors = nil
-					m.pendingHistory = nil
-					m.items = nil
-					m.sourceItems = nil
-					m.nextCursor = ""
-					m.resources = nil
-					m.resourceMode = false
-					m.top = 0
-					m.selectRow(0)
-					return m, m.searchSource("")
-				}
-				q, f, c := m.inputs[0].Value(), strings.TrimSpace(m.inputs[1].Value()), strings.TrimSpace(m.inputs[2].Value())
-				return m, func() tea.Msg { items, err := m.client.Search(m.ctx, q, f, c); return searchDone{items, err} }
+				m.activeQuery, m.activeF, m.activeC = m.inputs[0].Value(), strings.TrimSpace(m.inputs[1].Value()), strings.TrimSpace(m.inputs[2].Value())
+				m.currentCursor = ""
+				m.previousCursors = nil
+				m.pendingHistory = nil
+				m.items = nil
+				m.sourceItems = nil
+				m.nextCursor = ""
+				m.resources = nil
+				m.resourceMode = false
+				m.top = 0
+				m.selectRow(0)
+				return m, m.searchSource("")
 			}
 		case "results":
 			switch key {
 			case "/", "esc":
 				if key == "esc" && m.resourceMode {
 					m.resourceMode = false
-					m.items = itemRows(m.sourceItems)
+					m.items = m.sourceItems
 					m.top = 0
 					m.selectRow(0)
 					m.status = "Choose an item; Enter opens details."
@@ -243,7 +203,7 @@ func (m model) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 				if len(m.items) == 0 {
 					return m, nil
 				}
-				if m.pluginsReady && !m.resourceMode {
+				if !m.resourceMode {
 					item := m.sourceItems[m.cursor]
 					m.busy = true
 					m.status = "Loading details and resources…"
@@ -264,24 +224,24 @@ func (m model) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 						return detailDone{detail, resources, err}
 					}
 				}
-				if m.pluginsReady && len(m.downloaders) == 0 {
+				if len(m.downloaders) == 0 {
 					m.status = "No enabled downloader. Resources remain available for browsing."
 					return m, nil
 				}
-				if m.accepted[m.acceptedKey(m.items[m.cursor].InfoHash)] {
+				if m.accepted[m.acceptedKey(m.items[m.cursor].ID)] {
 					m.status = "Already accepted for this downloader in this session. Check the downloader."
 					return m, nil
 				}
 				m.phase = "confirm"
 				return m, nil
 			case "n":
-				if m.pluginsReady && !m.resourceMode && m.nextCursor != "" {
+				if !m.resourceMode && m.nextCursor != "" {
 					m.busy = true
 					m.pendingHistory = append(append([]string(nil), m.previousCursors...), m.currentCursor)
 					return m, m.searchSource(m.nextCursor)
 				}
 			case "p":
-				if m.pluginsReady && !m.resourceMode && len(m.previousCursors) > 0 {
+				if !m.resourceMode && len(m.previousCursors) > 0 {
 					last := len(m.previousCursors) - 1
 					targetCursor := m.previousCursors[last]
 					m.pendingHistory = append([]string(nil), m.previousCursors[:last]...)
@@ -314,17 +274,13 @@ func (m model) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 			case "y":
 				m.busy = true
 				m.status = "Submitting… If interrupted, check the downloader before retrying."
-				hash := m.items[m.cursor].InfoHash
-				if m.pluginsReady {
-					r := m.resources[m.cursor]
-					downloader := m.downloaderID()
-					key := m.acceptedKey(hash)
-					return m, func() tea.Msg {
-						result, err := m.client.SubmitResource(m.ctx, downloader, r)
-						return resourceSubmitDone{key, result, err}
-					}
+				r := m.resources[m.cursor]
+				downloader := m.downloaderID()
+				key := m.acceptedKey(r.InfoHash)
+				return m, func() tea.Msg {
+					result, err := m.client.SubmitResource(m.ctx, downloader, r)
+					return resourceSubmitDone{key, result, err}
 				}
-				return m, func() tea.Msg { return submitDone{hash, m.client.Submit(m.ctx, hash)} }
 			}
 			return m, nil
 		}
@@ -349,19 +305,15 @@ func (m *model) selectRow(index int) {
 		m.top = m.cursor - height + 1
 	}
 	rows := make([]table.Row, 0, height)
-	for i, item := range m.items[m.top:min(len(m.items), m.top+height)] {
+	for _, item := range m.items[m.top:min(len(m.items), m.top+height)] {
 		flags := ""
-		if item.Trusted {
+		if slices.Contains(item.Tags, "可信") {
 			flags += "trusted "
 		}
-		if item.Remake {
+		if slices.Contains(item.Tags, "重制") {
 			flags += "remake"
 		}
-		score := fmt.Sprint(item.Score)
-		if m.pluginsReady && !m.resourceMode {
-			score = plain(m.sourceItems[m.top+i].Score)
-		}
-		rows = append(rows, table.Row{plain(item.Title), plain(item.Size), fmt.Sprint(item.Seeders), score, flags})
+		rows = append(rows, table.Row{plain(strings.TrimSpace(item.Code + " " + item.Title)), plain(item.Size), fmt.Sprint(item.Seeders), plain(item.Score), flags})
 	}
 	m.table.GotoTop()
 	m.table.SetRows(rows)
@@ -384,11 +336,7 @@ func plain(s string) string {
 
 func (m model) View() tea.View {
 	var content strings.Builder
-	if m.pluginsReady {
-		fmt.Fprintf(&content, "MetaDonalds  /  %s → %s\n\n", plain(m.sourceID()), plain(m.downloaderID()))
-	} else {
-		content.WriteString("MetaDonalds  /  NYAA → PIKPAK\n\n")
-	}
+	fmt.Fprintf(&content, "MetaDonalds  /  %s → %s\n\n", plain(m.sourceID()), plain(m.downloaderID()))
 	if m.width < 60 || m.height < 20 {
 		content.WriteString("Please resize your terminal to at least 60 × 20. Ctrl+C quits.")
 	} else if m.phase == "confirm" {
@@ -398,11 +346,8 @@ func (m model) View() tea.View {
 		if m.busy {
 			status = m.status
 		}
-		target := "PikPak"
-		if m.pluginsReady {
-			target = m.downloaderID()
-		}
-		fmt.Fprintf(&content, "Submit to %s?\n\n%s\n%s\n\n[y] Confirm  [n / Esc] Cancel\n\nCheck the downloader first if a previous attempt was uncertain.\n\n%s", plain(target), title, plain(item.InfoHash), status)
+		target := m.downloaderID()
+		fmt.Fprintf(&content, "Submit to %s?\n\n%s\n%s\n\n[y] Confirm  [n / Esc] Cancel\n\nCheck the downloader first if a previous attempt was uncertain.\n\n%s", plain(target), title, plain(item.ID), status)
 	} else {
 		for i, label := range []string{"Keywords", "Filter", "Category"} {
 			fmt.Fprintf(&content, "%s\n%s\n", label, m.inputs[i].View())

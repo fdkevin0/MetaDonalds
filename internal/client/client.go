@@ -11,21 +11,10 @@ import (
 	"io"
 	"net/http"
 	"net/url"
-	"strings"
 	"time"
 )
 
 const DefaultURL = "http://127.0.0.1:8080"
-
-type Torrent struct {
-	Title    string `json:"title"`
-	InfoHash string `json:"info_hash"`
-	Seeders  int    `json:"seeders"`
-	Size     string `json:"size"`
-	Trusted  bool   `json:"trusted"`
-	Remake   bool   `json:"remake"`
-	Score    int    `json:"score"`
-}
 
 func ParseURL(raw string) (*url.URL, error) {
 	u, err := url.Parse(raw)
@@ -50,46 +39,6 @@ func New(raw string) (*Client, error) {
 		Timeout:       60 * time.Second,
 		CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse },
 	}}, nil
-}
-
-func (c *Client) Search(ctx context.Context, query, filter, category string) ([]Torrent, error) {
-	query = strings.TrimSpace(query)
-	if len(query) == 0 || len(query) > 200 {
-		return nil, fmt.Errorf("search must be 1–200 bytes after trimming")
-	}
-	params := url.Values{"q": {query}}
-	if filter != "" {
-		params.Set("f", filter)
-	}
-	if category != "" {
-		params.Set("c", category)
-	}
-	var out struct {
-		Results []Torrent `json:"results"`
-	}
-	err := c.request(ctx, http.MethodGet, "/api/v1/search?"+params.Encode(), nil, &out)
-	if err == nil && out.Results == nil {
-		err = fmt.Errorf("invalid search response")
-	}
-	return out.Results, err
-}
-
-func (c *Client) Submit(ctx context.Context, hash string) error {
-	body, err := json.Marshal(map[string]string{"info_hash": hash})
-	if err != nil {
-		return err
-	}
-	var response struct {
-		Status   string `json:"status"`
-		InfoHash string `json:"info_hash"`
-	}
-	if err := c.request(ctx, http.MethodPost, "/api/v1/submit", body, &response); err != nil {
-		return fmt.Errorf("submission not confirmed; check PikPak before retrying: %w", err)
-	}
-	if response.Status != "submitted" || response.InfoHash != strings.ToLower(hash) {
-		return fmt.Errorf("invalid submission response; check PikPak before retrying")
-	}
-	return nil
 }
 
 func (c *Client) request(ctx context.Context, method, path string, body []byte, out any) error {
@@ -182,7 +131,7 @@ func (c *Client) SubmitResource(ctx context.Context, downloader string, r core.R
 		var responseError *HTTPError
 		if errors.As(err, &responseError) {
 			switch responseError.Status {
-			case 400, 404, 413, 415, 422:
+			case 400, 403, 404, 405, 413, 415, 422:
 				return core.Submission{Status: "rejected", InfoHash: normalized.InfoHash, Message: responseError.Message}, err
 			}
 		}

@@ -39,7 +39,7 @@ func startupConfig(t *testing.T, upstream string) string {
 	}
 	path := filepath.Join(dir, "config.toml")
 	// Auto-start must use the requested loopback origin, not this wildcard address.
-	data := fmt.Sprintf("[server]\nlisten_addr = '0.0.0.0:1'\n[nyaa]\nbase_url = %q\nf = 2\n[pikpak]\nrc_socket = %q\nremote = 'pikpak:My Pack'\n", upstream, filepath.Join(dir, "rclone.sock"))
+	data := fmt.Sprintf("[server]\nlisten_addr = '0.0.0.0:1'\n[[plugins.sources]]\nid='nyaa'\ntype='nyaa'\nbase_url = %q\nf = 2\n[[plugins.downloaders]]\nid='pikpak'\ntype='pikpak-rclone'\nrc_socket = %q\nremote = 'pikpak:My Pack'\n", upstream, filepath.Join(dir, "rclone.sock"))
 	if err := os.WriteFile(path, []byte(data), 0600); err != nil {
 		t.Fatal(err)
 	}
@@ -62,9 +62,9 @@ func TestEnsureStartsReusesAndStopsOwnedServer(t *testing.T) {
 	}
 	defer stop()
 	c, _ := client.New(url)
-	items, err := c.Search(context.Background(), "test", "", "")
-	if err != nil || len(items) != 1 || items[0].InfoHash != testHash {
-		t.Fatalf("auto-started API: %v, %v", items, err)
+	page, err := c.SearchSource(context.Background(), "nyaa", "test", "", "", "")
+	if err != nil || len(page.Items) != 1 || page.Items[0].ID != testHash {
+		t.Fatalf("auto-started API: %v, %v", page.Items, err)
 	}
 	// A reused server must not require a local config, or be stopped by this UI.
 	release, err := Ensure(context.Background(), url, "missing-config.toml")
@@ -164,7 +164,7 @@ func TestExampleConfigStartsWithoutSystemDirectories(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.HasPrefix(cfg.PikPak.RCSocket, dir+string(os.PathSeparator)) {
-		t.Fatalf("default socket is outside the user temporary directory: %s", cfg.PikPak.RCSocket)
+	if !strings.HasPrefix(cfg.Plugins.Downloaders[0].RCSocket, dir+string(os.PathSeparator)) {
+		t.Fatalf("default socket is outside the user temporary directory: %s", cfg.Plugins.Downloaders[0].RCSocket)
 	}
 }

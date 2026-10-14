@@ -1,7 +1,6 @@
 package backend
 
 import (
-	"context"
 	"crypto/sha256"
 	"encoding/json"
 	"fmt"
@@ -30,7 +29,7 @@ func Handler(cfg Config, logger *slog.Logger) *HTTPService {
 	registry := core.NewRegistry()
 	catalogs := map[string]davCatalog{}
 	fingerprints := map[string]string{}
-	instances := cfg.Instances()
+	instances := cfg.Plugins
 	s := server{logger: logger, registry: registry}
 	for _, instance := range instances.Sources {
 		if !enabled(instance.Enabled) {
@@ -43,12 +42,6 @@ func Handler(cfg Config, logger *slog.Logger) *HTTPService {
 				nc.C = "0_0"
 			}
 			registry.AddSource(instance.ID, instance.Type, []string{"magnet"}, &nyaa.Source{ID: instance.ID, Config: nc, Client: c})
-			if instance.ID == instances.DefaultSource {
-				s.nyaa = nc
-				s.search = func(ctx context.Context, cfg NyaaConfig, q string) ([]torrent, error) {
-					return searchNyaa(ctx, c, cfg, q)
-				}
-			}
 		case "javdb":
 			base := instance.BaseURL
 			if base == "" {
@@ -67,15 +60,6 @@ func Handler(cfg Config, logger *slog.Logger) *HTTPService {
 		}
 		downloader := &pikpak.Downloader{Remote: d.Remote, Client: pikpak.NewRCClient(d.RCSocket)}
 		registry.AddDownloader(d.ID, d.Type, []string{"magnet"}, downloader)
-		if d.ID == instances.DefaultDownloader {
-			s.submit = func(ctx context.Context, hash string) error {
-				result := downloader.Submit(ctx, core.Resource{Kind: "magnet", InfoHash: hash})
-				if result.Status != "accepted" {
-					return fmt.Errorf("submission not confirmed")
-				}
-				return nil
-			}
-		}
 	}
 	closeCache := func() {}
 	if len(catalogs) != 0 {

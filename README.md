@@ -15,40 +15,14 @@ cp config.example.toml config.toml
 as the destination. Change it to match your remote and folder. Unknown
 configuration keys are rejected.
 
-Nyaa search parameters are configured in `[nyaa]`:
-
-```toml
-[nyaa]
-base_url = "https://sukebei.nyaa.si/"
-f = 0
-c = "0_0"
-```
-
-`f` is the integer filter parameter and `c` is the category string sent to Nyaa.
-Omitting them keeps the defaults above. These settings override any `f` or `c`
-in `base_url`; search requests can override either value with `f` and `c`.
-`q` comes from the search request and `page` is always `rss`.
-Restart MetaDonalds after changing the configuration.
-
-
 ### Plugin instances
 
-Without a `[plugins]` table, the existing `[nyaa]` / `[pikpak]` configuration
-creates `nyaa` (Nyaa), `catalog` (JavDB) and `pikpak` (PikPak) instances. This also
-adds JavDB when loading an existing legacy file, without rewriting that file.
-Nyaa remains the default source for compatibility. Adding a `[plugins]` table
-switches entirely to explicit instances; even an empty table disables the
-fallback. To opt out of JavDB, list only the sources you want in `[plugins]`.
-A complete example, using the custom downloader ID `personal`, is
-[config.plugins.example.toml](config.plugins.example.toml):
+Configure sources and downloaders as explicit instances in
+[config.example.toml](config.example.toml):
 
 ```toml
 [server]
 listen_addr = "127.0.0.1:8080"
-
-[plugins]
-default_source = "nyaa"          # Optional: target for the legacy search endpoint.
-default_downloader = "personal" # Optional: target for the legacy submit endpoint.
 
 [[plugins.sources]]
 id = "nyaa"
@@ -60,24 +34,25 @@ c = "0_0"
 [[plugins.sources]]
 id = "catalog"
 type = "javdb"
-# base_url defaults to https://jdforrepam.com/api
+# base_url defaults to https://jdforrepam.com/api.
 
 [[plugins.downloaders]]
-id = "personal"
+id = "pikpak"
 type = "pikpak-rclone"
-rc_socket = "/tmp/metadonalds/rclone.sock"
 remote = "pikpak:My Pack"
+# Optional absolute rc_socket; omitted uses a private per-user temporary directory.
 ```
 
-IDs are globally unique. `enabled = false` disables an instance; enabled defaults
-to true. Add another source or downloader entry for another site, remote or folder.
-Downloaders sharing a socket reuse one rclone process. Explicit downloader entries
-require an absolute `rc_socket`; legacy environment settings only affect legacy
-configuration. For search-only operation omit `plugins.downloaders` and
-`default_downloader`. `[plugins]` with `sources = []` and `downloaders = []`
-explicitly disables all plugins. Invalid types, duplicate IDs, unknown fields and
-invalid default references fail startup. A legacy `default_source` must be Nyaa;
-the new source endpoints work with every enabled source independently of defaults.
+Only listed instances are enabled. IDs are globally unique; `enabled = false`
+disables an instance, and enabled defaults to true. Add entries for another site,
+remote or folder. Downloaders sharing a socket reuse one rclone process. For
+search-only operation omit `plugins.downloaders`; an empty `[plugins]` table
+selects no instances. Unknown fields, invalid types, duplicate IDs, invalid URLs,
+filters, categories and socket paths fail startup.
+
+Nyaa uses `f = 0` and `c = "0_0"` when omitted. Search requests can override either
+value; `q` comes from the request and `page` is always `rss`. Nyaa base URLs must
+not contain query parameters. Restart MetaDonalds after configuration changes.
 
 JavDB is an anonymous adapter to the inspected public browser client's protocol,
 not a supported or versioned upstream contract. The endpoint, signature protocol
@@ -112,8 +87,6 @@ checking the downloader before manually retrying. Invalid resources receive 422
 before any downloader request. Transport errors and ambiguous upstream responses
 are `unknown`; redirects never replay the RC submission. There is no persisted
 job, history, cross-restart deduplication or download-completion tracking.
-The legacy `/api/v1/search` and `/api/v1/submit` keep their existing contracts;
-without their configured defaults they return 503.
 
 `internal/core` owns content/resource/submission models and source/downloader
 capabilities. `internal/plugins/{nyaa,javdb,pikpak}` owns provider protocols;
@@ -186,8 +159,10 @@ pictures, rewrites HLS playlists to local DAV links, and proxies video, segments
 keys, and maps. DAV clients connect to MetaDonalds rather than fetching media
 directly from the external providers; playback therefore uses the server's
 incoming and outgoing bandwidth. Actor photos use the same image path.
-Pictures are decoded from JavDB's public image encoding before serving. Media
-links are short-lived upstream URLs, so reopen a playlist if a segment expires;
+Pictures are decoded from JavDB's public image encoding before serving. Image
+property listings retain content checksums instead of all decoded image bodies.
+Media-folder listings probe segment sizes with at most eight concurrent requests
+under the existing 30-second deadline. Media links are short-lived upstream URLs, so reopen a playlist if a segment expires;
 generated local links stay in memory for up to four hours after their last use
 and are lost on service restart. MetaDonalds does not store complete videos or
 transcode HLS. An unavailable upstream returns an error instead of an empty
@@ -358,10 +333,10 @@ just build
 ./bin/metadonalds serve --config config.toml
 ```
 
-When `pikpak.rc_socket` is omitted, it defaults to
+When `rc_socket` is omitted from a `[[plugins.downloaders]]` entry, it defaults to
 `<OS temporary directory>/metadonalds-<uid>/rclone.sock`. To reuse a particular
-socket, set an absolute path in a writable directory. Compose explicitly overrides
-this with `/run/rclone/rclone.sock` inside the container.
+socket, set `rc_socket` to an absolute path in a writable directory. Compose
+mounts `/tmp` as a temporary filesystem for the private socket directory.
 
 On startup, the server reuses a healthy rclone at the configured socket or starts
 `rclone rcd` from `PATH` and waits up to 10 seconds for its RC API. The child
@@ -413,8 +388,8 @@ path. New directories use mode `0700` and the file uses `0600` on Unix. Existing
 files are never overwritten, including when two commands start simultaneously.
 An existing system config still takes precedence over creating a new user config.
 
-The generated configuration enables Nyaa, JavDB and PikPak through the legacy
-fallback described above and listens on `127.0.0.1:8080`; the Compose example
+The generated configuration lists Nyaa, JavDB and PikPak instances and listens
+on `127.0.0.1:8080`; the Compose example
 instead listens on `0.0.0.0:8080`. Search remains available if rclone is missing;
 configure the PikPak remote before submitting downloads. A missing explicit
 `--config` or `METADONALDS_CONFIG` path remains an error. Help commands and clients
@@ -425,11 +400,8 @@ Environment overrides are:
 | Variable | Setting |
 |---|---|
 | `METADONALDS_SERVER_LISTEN_ADDR` | `server.listen_addr` (`serve --listen` overrides it) |
-| `METADONALDS_NYAA_BASE_URL` | `nyaa.base_url` |
-| `METADONALDS_NYAA_F` | `nyaa.f` |
-| `METADONALDS_NYAA_C` | `nyaa.c` |
-| `METADONALDS_PIKPAK_RC_SOCKET` | `pikpak.rc_socket` |
-| `METADONALDS_PIKPAK_REMOTE` | `pikpak.remote` |
+| `METADONALDS_DAV_CACHE_DIR` | `dav_cache.dir` |
+| `METADONALDS_DAV_CACHE_REFRESH` | `dav_cache.refresh` |
 | `METADONALDS_SERVER` | Client server origin (`tui --server` overrides it) |
 
 The selected or newly initialized file is validated before starting a backend. Unknown file keys and
@@ -513,7 +485,7 @@ Use arrow keys to select a result, Enter to review it, and `y` to confirm or
 and `[ Search ]`, scrolling results with the wheel, clicking a result to review
 it, and clicking the confirmation or cancel action. A result click never submits
 on its own; actions are disabled while a request is in progress. `/` returns to the search fields. Ctrl+C quits. Use a terminal
-at least 60 columns wide and 20 rows tall. The `--server` option on both clients
+at least 60 columns wide and 20 rows tall. The TUI’s `--server` option
 accepts an HTTP(S) origin without a path, query, or embedded credentials and
 defaults to `http://127.0.0.1:8080`.
 
@@ -570,42 +542,40 @@ from the documentation creates a real PikPak submission.
 Errors use Huma's `application/problem+json` format: parameter and schema
 validation failures return 422, malformed JSON returns 400, oversized submit
 bodies return 413, and upstream failures return 502. JSON responses may include
-Huma's `$schema` link. Update clients that relied on the previous plain-text
-errors or validation status codes.
+Huma's `$schema` link. Cross-origin protection errors use plain text.
 
-Search Nyaa's RSS feed using the configured filter and category (default:
-all categories, no pagination), sorted by a
-score based on seeders, trusted status, and remake status. The trimmed query
-must be 1–200 bytes; the response is `{"results":[...]}`:
+Search a source using its configured instance ID. Nyaa results are sorted by
+seeders, trusted status and remake status. The trimmed query must be 1–200 UTF-8
+bytes; the response contains `items` and an optional `next_cursor`:
 
 ```sh
-curl 'http://127.0.0.1:8080/api/v1/search?q=Frieren'
+curl 'http://127.0.0.1:8080/api/v1/sources/nyaa/search?q=Frieren'
+curl 'http://127.0.0.1:8080/api/v1/sources/nyaa/search?q=Frieren&f=2&c=1_2'
 ```
 
-Override the configured filter and category for one request:
+Omitted Nyaa filters use configured values. Explicit `f=0` and `c=0_0` override
+them. Empty or malformed filters receive 422; `f` must be non-negative and `c`
+must use the `digits_digits` format. Other sources reject these Nyaa filters.
+
+Open an item’s resources, then submit a chosen magnet to a downloader instance:
 
 ```sh
-curl 'http://127.0.0.1:8080/api/v1/search?q=Frieren&f=2&c=1_2'
-```
-
-Omitted parameters use the configured values. Explicit `f=0` and `c=0_0`
-override them too. Empty or malformed values return HTTP 422: `f` must be a
-non-negative integer and `c` must use the `digits_digits` format. Overrides
-do not change the configuration or affect subsequent requests.
-
-Choose an `info_hash` from the results and submit that exact hash:
-
-```sh
-curl -X POST http://127.0.0.1:8080/api/v1/submit \
+curl 'http://127.0.0.1:8080/api/v1/sources/nyaa/items/0123456789abcdef0123456789abcdef01234567/resources'
+curl -X POST http://127.0.0.1:8080/api/v1/downloaders/pikpak/submissions \
   -H 'Content-Type: application/json' \
-  -d '{"info_hash":"0123456789abcdef0123456789abcdef01234567"}'
+  -d '{"resource":{"id":"chosen","title":"Chosen resource","kind":"magnet","info_hash":"0123456789abcdef0123456789abcdef01234567"}}'
 ```
 
-`POST /api/v1/submit` accepts only a 40-character hexadecimal infoHash, rejects
-unknown fields, and limits the body to 1024 bytes. A successful response has
-`status: "submitted"` and the lowercase `info_hash`. `GET /healthz` returns
-plain text `ok`. An HTTP timeout can leave submission status uncertain; check
-PikPak before retrying.
+Submission bodies are limited to 8192 bytes, reject unknown fields, and require
+a magnet with a 40-character hexadecimal `info_hash`. Outcomes are `accepted`,
+`rejected`, or `unknown`, with a normalized lowercase hash. Acceptance means
+rclone accepted the command. Check the downloader before manually retrying an
+unknown outcome. There are no automatic submission retries.
+
+Cross-origin browser submissions are rejected with HTTP 403. Same-origin browser
+requests and non-browser clients remain supported. This protection does not add
+authentication; use a trusted network or authenticated reverse proxy when making
+the service reachable by other devices. `GET /healthz` returns plain text `ok`.
 
 ## Logs
 
@@ -616,14 +586,10 @@ client prints its path at startup. This avoids disrupting terminal rendering.
 Startup and fatal errors are logged, and each completed HTTP request records
 its method, matched route, status, and duration in milliseconds. HTTP 4xx
 responses use WARN; 5xx responses use ERROR. Unmatched routes have an empty
-route field. Separate operation logs record validated search keywords (`query`)
-at start and completion or failure, plus `result_count` on success. Download
-submission logs record the normalized `info_hash` at start and acceptance or
-failure. Acceptance means the command was accepted, not that the cloud download
-finished; a failed or timed-out submission can still have reached PikPak.
-Logs omit full request URLs, bodies, headers, and raw upstream errors.
-A 502 on the search route
-indicates a Nyaa failure; a 502 on submit indicates an rclone/PikPak failure.
+route field. Logs omit search terms, full request URLs, bodies, headers and raw
+upstream errors. A 502 from a source route indicates an upstream source failure.
+Downloader transport failures return an `unknown` submission outcome because
+rclone may have accepted the command before the response was lost.
 
 ```sh
 docker compose logs -f --tail=100 metadonalds

@@ -19,10 +19,20 @@ type sourceSearchInput struct {
 }
 
 func (in *sourceSearchInput) Resolve(ctx huma.Context) []error {
-	legacy := searchInput{Q: in.Q, F: in.F, C: in.C}
-	errs := legacy.Resolve(ctx)
-	in.Q = legacy.Q
-	in.fSet, in.cSet = legacy.fSet, legacy.cSet
+	u := ctx.URL()
+	params := u.Query()
+	in.fSet, in.cSet = params.Has("f"), params.Has("c")
+	var errs []error
+	// Huma treats empty optional query values as absent.
+	for _, name := range []string{"f", "c"} {
+		if params.Has(name) && params.Get(name) == "" {
+			errs = append(errs, &huma.ErrorDetail{Location: "query." + name, Message: "must not be empty"})
+		}
+	}
+	in.Q = strings.TrimSpace(in.Q)
+	if len(in.Q) == 0 || len(in.Q) > 200 {
+		errs = append(errs, &huma.ErrorDetail{Location: "query.q", Message: "must be 1–200 bytes after trimming"})
+	}
 	return errs
 }
 

@@ -5,7 +5,6 @@ services:
     ports:
       - "127.0.0.1:8080:8080"
     environment:
-      METADONALDS_PIKPAK_RC_SOCKET: /run/rclone/rclone.sock
       RCLONE_CONFIG: /config/rclone/rclone.conf
       METADONALDS_DAV_CACHE_DIR: /cache/dav
     volumes:
@@ -13,7 +12,7 @@ services:
       - ./rclone:/config/rclone
       - dav-cache:/cache
     tmpfs:
-      - /run/rclone:mode=0700
+      - /tmp:mode=1777
     stop_grace_period: 15s
 
 volumes:

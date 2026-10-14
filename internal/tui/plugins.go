@@ -2,11 +2,9 @@ package tui
 
 import (
 	"fmt"
-	"slices"
 	"strings"
 
 	tea "charm.land/bubbletea/v2"
-	"github.com/fdkevin0/MetaDonalds/internal/client"
 	"github.com/fdkevin0/MetaDonalds/internal/core"
 )
 
@@ -32,13 +30,6 @@ type resourceSubmitDone struct {
 }
 
 func (m model) discover() tea.Msg { p, e := m.client.Plugins(m.ctx); return pluginsDone{p, e} }
-func itemRows(items []core.Item) []client.Torrent {
-	out := make([]client.Torrent, 0, len(items))
-	for _, i := range items {
-		out = append(out, client.Torrent{Title: strings.TrimSpace(i.Code + " " + i.Title), InfoHash: i.ID, Size: i.Size, Seeders: i.Seeders, Trusted: slices.Contains(i.Tags, "可信"), Remake: slices.Contains(i.Tags, "重制")})
-	}
-	return out
-}
 func (m model) sourceID() string {
 	if len(m.sources) == 0 {
 		return ""
@@ -52,9 +43,6 @@ func (m model) downloaderID() string {
 	return m.downloaders[m.downloaderIndex].ID
 }
 func (m model) acceptedKey(hash string) string {
-	if !m.pluginsReady {
-		return hash
-	}
 	return m.downloaderID() + ":" + strings.ToLower(hash)
 }
 func (m model) searchSource(cursor string) tea.Cmd {
@@ -76,7 +64,6 @@ func (m model) updatePlugins(msg tea.Msg) (model, tea.Cmd, bool) {
 			m.discoveryFailed = true
 			return m, nil, true
 		}
-		m.pluginsReady = true
 		m.discoveryFailed = false
 		m.sources = nil
 		m.downloaders = nil
@@ -105,7 +92,7 @@ func (m model) updatePlugins(msg tea.Msg) (model, tea.Cmd, bool) {
 		m.nextCursor = v.page.NextCursor
 		m.resourceMode = false
 		m.resources = nil
-		m.items = itemRows(v.page.Items)
+		m.items = v.page.Items
 		m.top = 0
 		m.selectRow(0)
 		m.phase = "results"
@@ -123,7 +110,7 @@ func (m model) updatePlugins(msg tea.Msg) (model, tea.Cmd, bool) {
 		m.resourceMode = true
 		m.items = nil
 		for _, r := range v.resources {
-			m.items = append(m.items, client.Torrent{Title: r.Title, InfoHash: r.InfoHash, Size: r.Size, Seeders: r.Seeders})
+			m.items = append(m.items, core.Item{Title: r.Title, ID: r.InfoHash, Size: r.Size, Seeders: r.Seeders})
 		}
 		m.top = 0
 		m.selectRow(0)

@@ -67,7 +67,7 @@ func TestServeInitializesConfiguration(t *testing.T) {
 				t.Fatal(err)
 			}
 			t.Cleanup(func() { os.RemoveAll(socketDir) })
-			t.Setenv("METADONALDS_PIKPAK_RC_SOCKET", filepath.Join(socketDir, "rclone.sock"))
+			t.Setenv("TMPDIR", socketDir)
 			listener, err := net.Listen("tcp", "127.0.0.1:0")
 			if err != nil {
 				t.Fatal(err)

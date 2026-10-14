@@ -16,7 +16,7 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/fdkevin0/MetaDonalds/internal/backend"
+	"github.com/fdkevin0/MetaDonalds/internal/plugins/pikpak"
 )
 
 type rcloneProcess struct {
@@ -29,7 +29,7 @@ type rcloneProcess struct {
 
 // startRclone returns nil when an existing rclone can be reused.
 func startRclone(ctx context.Context, socket string, logger *slog.Logger, output io.Writer) (*rcloneProcess, error) {
-	client := backend.NewRCClient(socket)
+	client := pikpak.NewRCClient(socket)
 	defer client.CloseIdleConnections()
 	if err := rcloneHealth(ctx, client); err == nil {
 		logger.Info("reusing rclone", "socket", socket)

@@ -10,17 +10,24 @@ import (
 )
 
 // First-run defaults enable Nyaa, JavDB and PikPak without exposing the local API.
-const defaultConfig = `# Without [plugins], enabled instances are nyaa (Nyaa), catalog (JavDB),
-# and pikpak (PikPak). Nyaa remains the default source.
+const defaultConfig = `# Enabled source and downloader instances.
 [server]
 listen_addr = "127.0.0.1:8080"
 
-[nyaa]
+[[plugins.sources]]
+id = "nyaa"
+type = "nyaa"
 base_url = "https://sukebei.nyaa.si/"
 f = 0
 c = "0_0"
 
-[pikpak]
+[[plugins.sources]]
+id = "catalog"
+type = "javdb"
+
+[[plugins.downloaders]]
+id = "pikpak"
+type = "pikpak-rclone"
 # Configure this remote with rclone config before submitting downloads.
 # rc_socket defaults to a private per-user temporary directory.
 remote = "pikpak:My Pack"

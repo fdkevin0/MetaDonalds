@@ -579,7 +579,7 @@ func TestDAVRcloneVFSNestedMedia(t *testing.T) {
 }
 
 func TestDAVAssemblyRoute(t *testing.T) {
-	cfg := Config{Plugins: &PluginConfig{Sources: []SourceConfig{{ID: "catalog", Type: "javdb"}}}}
+	cfg := Config{Plugins: PluginConfig{Sources: []SourceConfig{{ID: "catalog", Type: "javdb"}}}}
 	h := Handler(cfg, nil)
 	t.Cleanup(h.Close)
 	if w := davRequest(t, h, "PROPFIND", "/dav/", "1", ""); w.Code != 207 || !strings.Contains(w.Body.String(), "catalog") {

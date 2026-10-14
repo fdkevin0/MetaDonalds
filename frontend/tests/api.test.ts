@@ -1,40 +1,7 @@
 import assert from 'node:assert/strict';
 import { afterEach, mock, spyOn, test } from 'bun:test';
-import { search, submit } from '../src/api.ts';
 
 afterEach(() => mock.restore());
-
-test('search keeps explicit zero filters, omits defaults, and validates UTF-8 bytes', async () => {
-  const fetch = spyOn(globalThis, 'fetch').mockImplementation(async (path: string) => {
-    const url = new URL(path, 'http://localhost');
-    assert.equal(url.searchParams.get('q'), '猫 & dogs');
-    assert.equal(url.searchParams.get('f'), '0');
-    assert.equal(url.searchParams.has('c'), false);
-    return Response.json({ results: [] });
-  });
-  assert.deepEqual(await search(' 猫 & dogs ', '0', ''), []);
-  await assert.rejects(search('猫'.repeat(67), '', ''));
-  assert.equal(fetch.mock.calls.length, 1);
-});
-
-test('submission never retries, rejects redirects, and requires an echoed accepted hash', async () => {
-  const hash = '0123456789abcdef0123456789abcdef01234567';
-  let response = Response.json({ detail: 'timeout' }, { status: 502 });
-  const fetch = spyOn(globalThis, 'fetch').mockImplementation(async (path: string, init: RequestInit) => {
-    assert.equal(path, '/api/v1/submit');
-    assert.equal(init.method, 'POST');
-    assert.equal(init.redirect, 'error');
-    assert.deepEqual(JSON.parse(String(init.body)), { info_hash: hash });
-    return response;
-  });
-  await assert.rejects(submit(hash), /timeout/);
-  assert.equal(fetch.mock.calls.length, 1);
-  response = Response.json({ status: 'submitted' });
-  await assert.rejects(submit(hash), /格式错误/);
-  response = Response.json({ status: 'submitted', info_hash: hash });
-  await submit(hash);
-  assert.equal(fetch.mock.calls.length, 3);
-});
 
 test('plugin search encodes identities and opaque cursors while preserving Nyaa overrides', async () => {
   const { searchSource } = await import('../src/api.ts');
@@ -93,4 +60,33 @@ test('source results preserve generic tags and resource metadata for detail disp
   spyOn(globalThis, 'fetch').mockResolvedValue(Response.json({ items: [item] }));
   const page = await searchSource('nyaa', 'release');
   assert.deepEqual(page.items[0], item);
+});
+
+test('search trims the query and validates UTF-8 bytes before calling the source', async () => {
+  const { searchSource } = await import('../src/api.ts');
+  const fetch = spyOn(globalThis, 'fetch').mockImplementation(async (path: string) => {
+    assert.equal(new URL(path, 'http://localhost').searchParams.get('q'), '猫 & dogs');
+    return Response.json({ items: [] });
+  });
+  await searchSource('nyaa', ' 猫 & dogs ');
+  await assert.rejects(searchSource('nyaa', '猫'.repeat(67)));
+  await assert.rejects(searchSource('nyaa', '  '));
+  assert.equal(fetch.mock.calls.length, 1);
+});
+
+test('submission classifies boundary refusals even when their bodies are not JSON', async () => {
+  const { submitResource } = await import('../src/api.ts');
+  const resource = { id: 'r', kind: 'magnet' as const, title: 'test', info_hash: 'A'.repeat(40) };
+  let response = new Response('forbidden', { status: 403 });
+  const fetch = spyOn(globalThis, 'fetch').mockImplementation(async () => response);
+  for (const status of [403, 405, 413, 415]) {
+    for (response of [Response.json({ detail: 'refused' }, { status }), new Response('refused', { status }), Response.json(null, { status })]) {
+      const result = await submitResource('test', resource);
+      assert.equal(result.status, 'rejected');
+      assert.equal(result.info_hash, 'a'.repeat(40));
+    }
+  }
+  assert.equal(fetch.mock.calls.length, 12);
+  response = new Response('bad gateway', { status: 502 });
+  await assert.rejects(submitResource('test', resource));
 });

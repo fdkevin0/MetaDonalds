@@ -43,7 +43,7 @@ func TestInitializeMissingConfiguration(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if cfg.Server.ListenAddr != "127.0.0.1:8080" || cfg.Nyaa.BaseURL != "https://sukebei.nyaa.si/" || cfg.PikPak.Remote != "pikpak:My Pack" || cfg.Plugins != nil {
+	if cfg.Server.ListenAddr != "127.0.0.1:8080" {
 		t.Fatalf("unexpected defaults: %+v", cfg)
 	}
 	assertDefaultInstances(t, cfg)
@@ -67,7 +67,7 @@ func TestInitializeMissingConfiguration(t *testing.T) {
 		t.Fatal(err)
 	}
 	cfg, err = LoadConfig("", "")
-	if err != nil || cfg.PikPak.Remote != "custom:Folder" {
+	if err != nil || cfg.Plugins.Downloaders[0].Remote != "custom:Folder" {
 		t.Fatalf("existing config overwritten: %v %v", cfg, err)
 	}
 	assertDefaultInstances(t, cfg)
@@ -196,7 +196,7 @@ func TestEnsureInitializesBeforeStartingLocalService(t *testing.T) {
 	output := captureConfigLog(t)
 	// No real rclone or network source: only local service readiness is exercised.
 	t.Setenv("PATH", t.TempDir())
-	t.Setenv("METADONALDS_PIKPAK_RC_SOCKET", filepath.Join(shortDir(t), "rclone.sock"))
+	t.Setenv("TMPDIR", shortDir(t))
 	address := "http://" + freeAddress(t)
 	stop, err := Ensure(context.Background(), address, "")
 	if err != nil {

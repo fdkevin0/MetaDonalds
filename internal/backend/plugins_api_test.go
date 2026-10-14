@@ -12,13 +12,15 @@ import (
 	"testing"
 )
 
+const testHash = "0123456789abcdef0123456789abcdef01234567"
+
 type fakeDownloader struct{ calls int }
 
 func (d *fakeDownloader) Submit(_ context.Context, r core.Resource) core.Submission {
 	d.calls++
 	return core.Submission{Status: "accepted", InfoHash: r.InfoHash}
 }
-func TestGenericAPIsAndLegacyCompatibility(t *testing.T) {
+func TestGenericAPIs(t *testing.T) {
 	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Query().Get("f") != "2" || r.URL.Query().Get("c") != "1_0" {
 			t.Errorf("filters lost: %s", r.URL.RawQuery)
@@ -26,7 +28,7 @@ func TestGenericAPIsAndLegacyCompatibility(t *testing.T) {
 		io.WriteString(w, `<rss><channel><item><title>Example</title><infoHash>`+testHash+`</infoHash><seeders>7</seeders><size>1 GiB</size></item></channel></rss>`)
 	}))
 	defer upstream.Close()
-	cfg := Config{Plugins: &PluginConfig{Sources: []SourceConfig{{ID: "mirror", Type: "nyaa", BaseURL: upstream.URL}}, DefaultSource: "mirror"}}
+	cfg := Config{Plugins: PluginConfig{Sources: []SourceConfig{{ID: "mirror", Type: "nyaa", BaseURL: upstream.URL}}}}
 	service := Handler(cfg, nil)
 	t.Cleanup(service.Close)
 	var handler http.Handler = service
@@ -39,7 +41,7 @@ func TestGenericAPIsAndLegacyCompatibility(t *testing.T) {
 		handler.ServeHTTP(w, r)
 		return w
 	}
-	for _, path := range []string{"/api/v1/search?q=example&f=2&c=1_0", "/api/v1/sources/mirror/search?q=example&f=2&c=1_0"} {
+	for _, path := range []string{"/api/v1/sources/mirror/search?q=example&f=2&c=1_0"} {
 		w := request("GET", path, "")
 		if w.Code != 200 || !bytes.Contains(w.Body.Bytes(), []byte("Example")) {
 			t.Fatalf("%s: %d %s", path, w.Code, w.Body)
@@ -52,9 +54,6 @@ func TestGenericAPIsAndLegacyCompatibility(t *testing.T) {
 	w = request("GET", "/api/v1/sources/mirror/items/"+testHash+"/resources", "")
 	if w.Code != 200 || !bytes.Contains(w.Body.Bytes(), []byte(testHash)) {
 		t.Fatal(w.Body.String())
-	}
-	if w = request("POST", "/api/v1/submit", `{"info_hash":"`+testHash+`"}`); w.Code != 503 {
-		t.Fatalf("missing default %d", w.Code)
 	}
 	if w = request("GET", "/api/v1/sources/absent/search?q=x", ""); w.Code != 404 {
 		t.Fatal(w.Code)

@@ -1,24 +1,28 @@
-# Legacy configuration enables nyaa (Nyaa), catalog (JavDB), and pikpak (PikPak).
-# Nyaa remains the default source. Use explicit [plugins] to change this selection.
 [server]
+# For a local Go process, use 127.0.0.1:8080. Compose publishes only to loopback.
 listen_addr = "0.0.0.0:8080"
 
-[nyaa]
+[[plugins.sources]]
+id = "nyaa"
+type = "nyaa"
 base_url = "https://sukebei.nyaa.si/"
 f = 0
 c = "0_0"
 
-[pikpak]
-# rc_socket defaults to a per-user directory under the OS temporary directory.
-# Set an absolute path here to use a specific rclone socket.
-remote = "pikpak:My Pack"
+[[plugins.sources]]
+id = "catalog"
+type = "javdb"
+# base_url defaults to https://jdforrepam.com/api.
 
-# To customize or disable sources/downloaders, replace the legacy sections above with
-# [plugins] and [[plugins.sources]] / [[plugins.downloaders]] entries. See README.
-# An explicit [plugins] table disables legacy fallback, even when empty.
+# Remove this entry for search-only operation.
+[[plugins.downloaders]]
+id = "pikpak"
+type = "pikpak-rclone"
+# rc_socket defaults to a private per-user directory under the OS temporary directory.
+# Set an absolute path to use a specific socket.
+remote = "pikpak:My Pack"
 
 [dav_cache]
 # Defaults to metadonalds/dav under the OS user cache directory.
 # Set an absolute dedicated directory to override; dir = "" disables persistence.
-# dir = "/var/cache/metadonalds/dav"
-refresh = true # Refresh recently accessed directories in the background.
+refresh = true

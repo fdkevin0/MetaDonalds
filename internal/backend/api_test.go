@@ -1,205 +1,150 @@
 package backend
 
 import (
-	"context"
 	"encoding/json"
+	"fmt"
+	"github.com/fdkevin0/MetaDonalds/internal/core"
 	"net/http"
 	"net/http/httptest"
 	"strings"
 	"testing"
-
-	"github.com/danielgtaylor/huma/v2"
 )
 
-func TestSubmitValidatesHash(t *testing.T) {
-	called := 0
-	s := server{submit: func(_ context.Context, hash string) error {
-		called++
-		if hash != testHash {
-			t.Errorf("unexpected hash %q", hash)
-		}
-		return nil
-	}}
+func TestSubmitValidatesResource(t *testing.T) {
+	registry := coreRegistry(t)
+	d := registry.Downloaders["test"].(*fakeDownloader)
+	handler := (server{registry: registry}).routes()
+	valid := `{"resource":{"id":"chosen","title":"Chosen","kind":"magnet","info_hash":"` + strings.ToUpper(testHash) + `"}}`
 	for _, tc := range []struct {
 		body string
 		code int
 	}{
-		{`{"info_hash":"` + strings.ToUpper(testHash) + `"}`, http.StatusOK},
-		{`{"info_hash":"xyz"}`, http.StatusUnprocessableEntity},
-		{`{"info_hash":"` + testHash + `","query":"Frieren"}`, http.StatusUnprocessableEntity},
-		{`{"info_hash":"` + testHash + `"}{}`, http.StatusBadRequest},
-		{`{"info_hash":"` + strings.Repeat("a", 1024) + `"}`, http.StatusRequestEntityTooLarge},
+		{valid, 200},
+		{strings.Replace(valid, strings.ToUpper(testHash), "bad", 1), 422},
+		{strings.Replace(valid, `"magnet"`, `"http"`, 1), 422},
+		{strings.Replace(valid, `"id":"chosen"`, `"id":"chosen","url":"http://private"`, 1), 422},
+		{valid + `{}`, 400},
+		{strings.Replace(valid, "Chosen", strings.Repeat("a", 8192), 1), 413},
 	} {
-		req := httptest.NewRequest(http.MethodPost, "/api/v1/submit", strings.NewReader(tc.body))
-		req.Header.Set("Content-Type", "application/json")
-		res := httptest.NewRecorder()
-		s.routes().ServeHTTP(res, req)
-		if res.Code != tc.code {
-			t.Errorf("body %q: got HTTP %d, want %d", tc.body, res.Code, tc.code)
+		r := httptest.NewRequest("POST", "/api/v1/downloaders/test/submissions", strings.NewReader(tc.body))
+		r.Header.Set("Content-Type", "application/json")
+		w := httptest.NewRecorder()
+		handler.ServeHTTP(w, r)
+		if w.Code != tc.code {
+			t.Fatalf("HTTP %d, want %d: %s", w.Code, tc.code, w.Body.String())
 		}
-		if tc.code == http.StatusOK {
-			var result map[string]string
-			if err := json.Unmarshal(res.Body.Bytes(), &result); err != nil || result["status"] != "submitted" || result["info_hash"] != testHash {
-				t.Errorf("bad response: %s, %v", res.Body.String(), err)
-			}
-		} else {
-			var problem huma.ErrorModel
-			if err := json.Unmarshal(res.Body.Bytes(), &problem); err != nil || problem.Status != tc.code || !strings.HasPrefix(res.Header().Get("Content-Type"), "application/problem+json") {
-				t.Errorf("expected Huma problem response: %s", res.Body.String())
-			}
+		if tc.code == 200 && !strings.Contains(w.Body.String(), testHash) {
+			t.Fatal("hash not normalized")
 		}
 	}
-	if called != 1 {
-		t.Fatalf("submit called %d times", called)
+	if d.calls != 1 {
+		t.Fatalf("invalid input reached downloader: %d calls", d.calls)
 	}
 }
 
-func TestSearchQueryValidation(t *testing.T) {
-	calls := 0
-	s := server{search: func(_ context.Context, _ NyaaConfig, query string) ([]torrent, error) {
-		calls++
-		if query != "Frieren" {
-			t.Errorf("query was not trimmed: %q", query)
-		}
-		return []torrent{{Title: "Frieren", InfoHash: testHash}}, nil
-	}}
-	handler := s.routes()
-	for _, query := range []string{"", "q=", "q=+++", "q=" + strings.Repeat("a", 201), "q=" + strings.Repeat("猫", 67), "q=+Frieren+"} {
-		response := httptest.NewRecorder()
-		handler.ServeHTTP(response, httptest.NewRequest("GET", "/api/v1/search?"+query, nil))
-		if query == "q=+Frieren+" {
-			var body struct {
-				Results []torrent `json:"results"`
-			}
-			if err := json.Unmarshal(response.Body.Bytes(), &body); err != nil || response.Code != 200 || len(body.Results) != 1 || body.Results[0].InfoHash != testHash {
-				t.Fatalf("bad search response: %s", response.Body.String())
-			}
-		} else if response.Code != 422 {
-			t.Errorf("query %q: got %d, want 422", query, response.Code)
+func TestSubmissionCrossOriginProtection(t *testing.T) {
+	registry := coreRegistry(t)
+	d := registry.Downloaders["test"].(*fakeDownloader)
+	handler := (server{registry: registry}).routes()
+	body := `{"resource":{"id":"chosen","title":"Chosen","kind":"magnet","info_hash":"` + testHash + `"}}`
+	for _, tc := range []struct {
+		origin, site string
+		code         int
+	}{
+		{"http://foreign.example", "cross-site", 403},
+		{"http://foreign.example", "", 403},
+		{"http://127.0.0.1:8080", "same-origin", 200},
+		{"", "", 200},
+	} {
+		r := httptest.NewRequest("POST", "http://127.0.0.1:8080/api/v1/downloaders/test/submissions", strings.NewReader(body))
+		r.Header.Set("Origin", tc.origin)
+		r.Header.Set("Sec-Fetch-Site", tc.site)
+		w := httptest.NewRecorder()
+		handler.ServeHTTP(w, r)
+		if w.Code != tc.code {
+			t.Fatalf("Origin=%q site=%q HTTP %d: %s", tc.origin, tc.site, w.Code, w.Body.String())
 		}
 	}
-	if calls != 1 {
-		t.Fatalf("invalid queries reached upstream: %d calls", calls)
+	if d.calls != 2 {
+		t.Fatalf("cross-origin request reached downloader: %d calls", d.calls)
+	}
+}
+
+func TestSourceSearchValidationAndOverrides(t *testing.T) {
+	for _, tc := range []struct {
+		params string
+		f, c   string
+		code   int
+	}{
+		{"q=+Frieren+", "2", "1_2", 200},
+		{"q=Frieren&f=0", "0", "1_2", 200},
+		{"q=Frieren&c=0_0", "2", "0_0", 200},
+		{"q=Frieren&f=1&c=1_0", "1", "1_0", 200},
+		{"", "", "", 422}, {"q=+++", "", "", 422},
+		{"q=" + strings.Repeat("a", 201), "", "", 422},
+		{"q=" + strings.Repeat("猫", 67), "", "", 422},
+		{"q=Frieren&f=", "", "", 422}, {"q=Frieren&f=nope", "", "", 422},
+		{"q=Frieren&f=-1", "", "", 422}, {"q=Frieren&c=", "", "", 422}, {"q=Frieren&c=bad", "", "", 422},
+	} {
+		t.Run(tc.params, func(t *testing.T) {
+			calls := 0
+			upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				calls++
+				if r.URL.Query().Get("q") != "Frieren" || r.URL.Query().Get("f") != tc.f || r.URL.Query().Get("c") != tc.c {
+					t.Errorf("wrong query: %s", r.URL)
+				}
+				fmt.Fprint(w, "<rss><channel></channel></rss>")
+			}))
+			defer upstream.Close()
+			service := Handler(Config{Plugins: PluginConfig{Sources: []SourceConfig{{ID: "mirror", Type: "nyaa", BaseURL: upstream.URL, F: 2, C: "1_2"}}}}, nil)
+			defer service.Close()
+			w := httptest.NewRecorder()
+			service.ServeHTTP(w, httptest.NewRequest("GET", "/api/v1/sources/mirror/search?"+tc.params, nil))
+			wantCalls := 0
+			if tc.code == 200 {
+				wantCalls = 1
+			}
+			if w.Code != tc.code || calls != wantCalls {
+				t.Fatalf("HTTP %d calls=%d: %s", w.Code, calls, w.Body.String())
+			}
+		})
 	}
 }
 
 func TestAPIDocumentation(t *testing.T) {
-	// Read the published JSON, rather than Huma's write-only schema types.
-	type schema struct {
-		Ref     string `json:"$ref"`
-		Default any
-	}
-	type media struct{ Schema schema }
-	type operation struct {
-		Parameters []struct {
-			Name     string
-			Required bool
-			Schema   schema
-		}
-		RequestBody struct{ Content map[string]media }
-		Responses   map[string]struct{ Content map[string]media }
-	}
-	handler := (server{}).routes()
-	response := httptest.NewRecorder()
-	handler.ServeHTTP(response, httptest.NewRequest("GET", "/openapi.json", nil))
+	handler := (server{registry: coreRegistry(t)}).routes()
+	w := httptest.NewRecorder()
+	handler.ServeHTTP(w, httptest.NewRequest("GET", "/openapi.json", nil))
 	var spec struct {
-		OpenAPI    string
-		Paths      map[string]struct{ Get, Post *operation }
-		Components struct{ Schemas map[string]json.RawMessage }
+		OpenAPI string
+		Paths   map[string]json.RawMessage
 	}
-	if err := json.Unmarshal(response.Body.Bytes(), &spec); err != nil || response.Code != 200 || spec.OpenAPI != "3.1.0" {
-		t.Fatalf("invalid OpenAPI response: %s", response.Body.String())
+	if err := json.Unmarshal(w.Body.Bytes(), &spec); err != nil || w.Code != 200 || spec.OpenAPI != "3.1.0" {
+		t.Fatalf("invalid OpenAPI: %s", w.Body.String())
 	}
-	search := spec.Paths["/api/v1/search"].Get
-	submit := spec.Paths["/api/v1/submit"].Post
-	health := spec.Paths["/healthz"].Get
-	if search == nil || submit == nil || health == nil || len(search.Parameters) != 3 {
-		t.Fatal("missing API operations or search parameters")
-	}
-	for _, param := range search.Parameters {
-		if param.Name == "q" && !param.Required {
-			t.Fatal("q must be documented as required")
-		}
-		if (param.Name == "f" || param.Name == "c") && (param.Required || param.Schema.Default != nil) {
-			t.Fatal("overrides must be optional without hardcoded defaults")
+	for _, path := range []string{"/healthz", "/api/v1/plugins", "/api/v1/sources/{source}/search", "/api/v1/sources/{source}/items/{id}", "/api/v1/sources/{source}/items/{id}/resources", "/api/v1/downloaders/{downloader}/submissions"} {
+		if spec.Paths[path] == nil {
+			t.Fatalf("missing operation %s", path)
 		}
 	}
-	ref := submit.RequestBody.Content["application/json"].Schema.Ref
-	var body struct {
-		Properties           map[string]struct{ Pattern string }
-		AdditionalProperties bool
-	}
-	if err := json.Unmarshal(spec.Components.Schemas[strings.TrimPrefix(ref, "#/components/schemas/")], &body); err != nil {
-		t.Fatal(err)
-	}
-	if body.Properties["info_hash"].Pattern != infoHashPattern.String() || body.AdditionalProperties {
-		t.Fatal("submit schema must validate info_hash and reject unknown fields")
-	}
-	if len(submit.Responses["502"].Content) == 0 || len(search.Responses["502"].Content) == 0 || len(health.Responses["200"].Content) != 1 {
-		t.Fatal("missing upstream errors or health media type")
+	if len(spec.Paths) != 6 {
+		t.Fatalf("unexpected operations: %v", spec.Paths)
 	}
 	for _, path := range []string{"/docs", "/openapi.yaml", "/healthz"} {
-		response := httptest.NewRecorder()
-		handler.ServeHTTP(response, httptest.NewRequest("GET", path, nil))
-		if response.Code != 200 {
-			t.Fatalf("%s: HTTP %d", path, response.Code)
+		w := httptest.NewRecorder()
+		handler.ServeHTTP(w, httptest.NewRequest("GET", path, nil))
+		if w.Code != 200 {
+			t.Fatalf("%s: HTTP %d", path, w.Code)
 		}
-		if path == "/docs" && (!strings.Contains(response.Body.String(), "/openapi.json") || !strings.Contains(response.Body.String(), "@scalar/api-reference")) {
-			t.Fatal("docs must load Scalar and the generated OpenAPI")
-		}
-		if path == "/healthz" && response.Body.String() != "ok\n" {
-			t.Fatalf("health response changed: %q", response.Body.String())
+		if path == "/healthz" && w.Body.String() != "ok\n" {
+			t.Fatal("health contract changed")
 		}
 	}
 }
 
-func TestSearchOverrides(t *testing.T) {
-	defaults := NyaaConfig{BaseURL: "https://mirror.example/", F: 2, C: "1_2"}
-	for _, tc := range []struct {
-		params string
-		f      int
-		c      string
-		code   int
-	}{
-		{"", 2, "1_2", 200},
-		{"&f=0", 0, "1_2", 200},
-		{"&c=0_0", 2, "0_0", 200},
-		{"&f=1&c=1_0", 1, "1_0", 200},
-		{"&f=", 0, "", 422},
-		{"&f=nope", 0, "", 422},
-		{"&f=-1", 0, "", 422},
-		{"&c=", 0, "", 422},
-		{"&c=bad", 0, "", 422},
-	} {
-		t.Run(tc.params, func(t *testing.T) {
-			calls := 0
-			s := server{nyaa: defaults, search: func(_ context.Context, cfg NyaaConfig, query string) ([]torrent, error) {
-				calls++
-				want := defaults
-				if calls == 1 {
-					want.F, want.C = tc.f, tc.c
-				}
-				if cfg != want || query != "Frieren" {
-					t.Errorf("search got %#v, %q; want %#v", cfg, query, want)
-				}
-				return []torrent{}, nil
-			}}
-			handler := s.routes()
-			response := httptest.NewRecorder()
-			handler.ServeHTTP(response, httptest.NewRequest("GET", "/api/v1/search?q=Frieren"+tc.params, nil))
-			if response.Code != tc.code {
-				t.Fatalf("got status %d, want %d", response.Code, tc.code)
-			}
-			if tc.code >= 400 {
-				if calls != 0 {
-					t.Fatal("invalid parameters reached upstream")
-				}
-				return
-			}
-			handler.ServeHTTP(httptest.NewRecorder(), httptest.NewRequest("GET", "/api/v1/search?q=Frieren", nil))
-			if calls != 2 {
-				t.Fatalf("search called %d times", calls)
-			}
-		})
-	}
+func coreRegistry(t *testing.T) *core.Registry {
+	t.Helper()
+	r := core.NewRegistry()
+	r.AddDownloader("test", "test", []string{"magnet"}, &fakeDownloader{})
+	return r
 }

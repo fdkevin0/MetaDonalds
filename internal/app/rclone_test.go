@@ -13,7 +13,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/fdkevin0/MetaDonalds/internal/backend"
+	"github.com/fdkevin0/MetaDonalds/internal/plugins/pikpak"
 )
 
 // The test executable stands in for rclone; no installed binary or remote is used.
@@ -102,7 +102,7 @@ func TestRcloneStartReuseStop(t *testing.T) {
 		t.Fatalf("reuse: %v, %v", reused, err)
 	}
 	reused.stop()
-	c := backend.NewRCClient(socket)
+	c := pikpak.NewRCClient(socket)
 	defer c.CloseIdleConnections()
 	if err := rcloneHealth(context.Background(), c); err != nil {
 		t.Fatal(err)

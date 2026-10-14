@@ -18,9 +18,15 @@ import (
 
 func press(code rune) tea.KeyPressMsg { return tea.KeyPressMsg{Code: code} }
 
-func TestSubmissionRequiresConfirmationAndDoesNotRepeat(t *testing.T) {
+func readyModel() model {
 	m := newModel(context.Background(), nil)
-	next, _ := m.Update(searchDone{items: []client.Torrent{{Title: "test", InfoHash: "hash"}}})
+	next, _, _ := m.updatePlugins(pluginsDone{plugins: []core.Plugin{{ID: "nyaa", Type: "nyaa", Kind: "source"}, {ID: "pikpak", Type: "pikpak-rclone", Kind: "downloader"}}})
+	return next
+}
+
+func TestSubmissionRequiresConfirmationAndDoesNotRepeat(t *testing.T) {
+	m := readyModel()
+	next, _ := m.Update(detailDone{item: core.Item{Title: "test"}, resources: []core.Resource{{Title: "test", InfoHash: "hash"}}})
 	m = next.(model)
 	next, cmd := m.Update(press(tea.KeyEnter))
 	m = next.(model)
@@ -36,18 +42,18 @@ func TestSubmissionRequiresConfirmationAndDoesNotRepeat(t *testing.T) {
 	if cmd != nil {
 		t.Fatal("repeated key scheduled duplicate submission")
 	}
-	next, cmd = m.Update(submitDone{hash: "hash"})
+	next, cmd = m.Update(resourceSubmitDone{key: "pikpak:hash", result: core.Submission{Status: "accepted", InfoHash: "hash"}})
 	m = next.(model)
-	if m.busy || !m.accepted["hash"] || cmd != nil {
+	if m.busy || !m.accepted["pikpak:hash"] || cmd != nil {
 		t.Fatal("submission completion not recorded")
 	}
 	_, cmd = m.Update(press(tea.KeyEnter))
 	if cmd != nil {
 		t.Fatal("accepted resource submitted again")
 	}
-	next, cmd = m.Update(submitDone{hash: "other", err: errors.New("timeout")})
+	next, cmd = m.Update(resourceSubmitDone{key: "pikpak:other", err: errors.New("timeout")})
 	m = next.(model)
-	if m.accepted["other"] || cmd != nil {
+	if m.accepted["pikpak:other"] || cmd != nil {
 		t.Fatal("failure was marked accepted or automatically retried")
 	}
 	if got := plain("a\x1b]52;c;secret\a\nb"); got != "a ]52;c;secret  b" {
@@ -56,17 +62,16 @@ func TestSubmissionRequiresConfirmationAndDoesNotRepeat(t *testing.T) {
 }
 
 func TestSearchResultsVisible(t *testing.T) {
-	m := newModel(context.Background(), nil)
+	m := readyModel()
 	next, _ := m.Update(tea.WindowSizeMsg{Width: 90, Height: 28})
-	next, _ = next.Update(searchDone{items: []client.Torrent{{Title: "Visible search result", InfoHash: "hash", Seeders: 42}}})
+	next, _ = next.Update(pageDone{page: core.Page{Items: []core.Item{{Title: "Visible search result", ID: "hash", Seeders: 42}}}})
 	if view := next.View().Content; !strings.Contains(view, "Visible search result") {
 		t.Fatalf("search result missing from view:\n%s", view)
 	}
 }
 
 func TestPluginScoresPreservedWhenScrolling(t *testing.T) {
-	m := newModel(context.Background(), nil)
-	m.pluginsReady = true
+	m := readyModel()
 	m.table.SetHeight(3)
 	next, _ := m.Update(pageDone{page: core.Page{Items: []core.Item{
 		{Title: "Unrated"},
@@ -104,18 +109,22 @@ func TestMouseSearchScrollAndConfirm(t *testing.T) {
 	const hash = "0123456789abcdef0123456789abcdef01234567"
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
-		case "/api/v1/search":
+		case "/api/v1/sources/nyaa/search":
 			if r.URL.Query().Get("q") != "example" {
 				t.Errorf("query = %q", r.URL.RawQuery)
 			}
-			items := make([]client.Torrent, 30)
+			items := make([]core.Item, 30)
 			for i := range items {
-				items[i] = client.Torrent{Title: fmt.Sprintf("Result-%02d", i), InfoHash: hash}
+				items[i] = core.Item{SourceID: "nyaa", Title: fmt.Sprintf("Result-%02d", i), ID: hash}
 			}
-			json.NewEncoder(w).Encode(map[string]any{"results": items})
-		case "/api/v1/submit":
+			json.NewEncoder(w).Encode(map[string]any{"items": items})
+		case "/api/v1/sources/nyaa/items/" + hash:
+			json.NewEncoder(w).Encode(core.Item{SourceID: "nyaa", ID: hash, Title: hash})
+		case "/api/v1/sources/nyaa/items/" + hash + "/resources":
+			json.NewEncoder(w).Encode(map[string]any{"resources": []core.Resource{{ID: hash, Kind: "magnet", Title: "Torrent", InfoHash: hash}}})
+		case "/api/v1/downloaders/pikpak/submissions":
 			submissions++
-			json.NewEncoder(w).Encode(map[string]string{"status": "submitted", "info_hash": hash})
+			json.NewEncoder(w).Encode(map[string]string{"status": "accepted", "info_hash": hash})
 		default:
 			t.Errorf("unexpected request: %s", r.URL.Path)
 		}
@@ -126,7 +135,9 @@ func TestMouseSearchScrollAndConfirm(t *testing.T) {
 		t.Fatal(err)
 	}
 	m := newModel(context.Background(), c)
-	m.discoveryPending = false // This fixture exercises the retained legacy interaction path.
+	m.discoveryPending = false
+	m.sources = readyModel().sources
+	m.downloaders = readyModel().downloaders
 	update := func(msg tea.Msg) tea.Cmd { next, cmd := m.Update(msg); m = next.(model); return cmd }
 	update(tea.WindowSizeMsg{Width: 90, Height: 28})
 	if m.View().MouseMode != tea.MouseModeCellMotion {
@@ -154,9 +165,18 @@ func TestMouseSearchScrollAndConfirm(t *testing.T) {
 	}
 	target := m.top + 1
 	cmd = update(clickText(t, m, fmt.Sprintf("Result-%02d", target)))
-	if cmd != nil || m.phase != "confirm" || m.cursor != target || submissions != 0 {
-		t.Fatal("result click must only open confirmation for clicked row")
+	if cmd == nil || submissions != 0 {
+		t.Fatal("item click must load details without submitting")
 	}
+	update(cmd())
+	if !m.resourceMode || submissions != 0 {
+		t.Fatal("detail did not show resources")
+	}
+	cmd = update(clickText(t, m, fmt.Sprintf("Result-%02d", target)))
+	if cmd != nil || m.phase != "confirm" || submissions != 0 {
+		t.Fatal("resource click bypassed confirmation")
+	}
+
 	update(clickText(t, m, "[n / Esc] Cancel"))
 	if m.phase != "results" {
 		t.Fatal("cancel click did not return to results")
@@ -171,12 +191,13 @@ func TestMouseSearchScrollAndConfirm(t *testing.T) {
 		t.Fatal("busy click scheduled duplicate submission")
 	}
 	update(cmd())
-	if submissions != 1 || !m.accepted[hash] {
+	if submissions != 1 || !m.accepted["pikpak:"+hash] {
 		t.Fatal("submission did not complete once")
 	}
 	if update(clickText(t, m, fmt.Sprintf("Result-%02d", target))) != nil || m.phase == "confirm" {
 		t.Fatal("accepted resource can be resubmitted")
 	}
+	update(press(tea.KeyEsc))
 	update(press(tea.KeyEnd))
 	if m.cursor != 29 || !strings.Contains(m.View().Content, "Result-29") {
 		t.Fatal("last result not reachable")
@@ -189,16 +210,16 @@ func TestMouseSearchScrollAndConfirm(t *testing.T) {
 	if lipgloss.Height(m.View().Content) > 20 {
 		t.Fatalf("view overflows small terminal: %d", lipgloss.Height(m.View().Content))
 	}
-	update(searchDone{})
+	update(pageDone{page: core.Page{Items: []core.Item{}}})
 	if m.top != 0 || len(m.table.Rows()) != 0 {
 		t.Fatal("empty search retained stale rows")
 	}
 }
 
 func TestMouseBoundsAndWrappedConfirmation(t *testing.T) {
-	m := newModel(context.Background(), nil)
+	m := readyModel()
 	next, _ := m.Update(tea.WindowSizeMsg{Width: 60, Height: 20})
-	next, _ = next.Update(searchDone{items: []client.Torrent{{Title: strings.Repeat("长标题", 50), InfoHash: "hash"}}})
+	next, _ = next.Update(detailDone{resources: []core.Resource{{Title: strings.Repeat("长标题", 50), InfoHash: "hash"}}})
 	m = next.(model)
 	for _, msg := range []tea.MouseClickMsg{
 		{X: 1, Y: 10, Button: tea.MouseLeft},  // header
@@ -225,8 +246,8 @@ func TestMouseBoundsAndWrappedConfirmation(t *testing.T) {
 }
 
 func TestSmallTerminalBlocksHiddenKeyboardActions(t *testing.T) {
-	m := newModel(context.Background(), nil)
-	next, _ := m.Update(searchDone{items: []client.Torrent{{Title: "test", InfoHash: "hash"}}})
+	m := readyModel()
+	next, _ := m.Update(detailDone{item: core.Item{Title: "test"}, resources: []core.Resource{{Title: "test", InfoHash: "hash"}}})
 	next, _ = next.Update(press(tea.KeyEnter))
 	next, _ = next.Update(tea.WindowSizeMsg{Width: 40, Height: 10})
 	next, cmd := next.Update(press('y'))
@@ -271,7 +292,7 @@ func TestPluginSearchDetailsAndDownloaderSelection(t *testing.T) {
 	m := newModel(context.Background(), c)
 	update := func(msg tea.Msg) tea.Cmd { next, cmd := m.Update(msg); m = next.(model); return cmd }
 	update(m.discover())
-	if !m.pluginsReady || m.sourceID() != "catalog" {
+	if m.sourceID() != "catalog" {
 		t.Fatal("plugins not loaded")
 	}
 	m.inputs[0].SetValue("query")
@@ -341,7 +362,7 @@ func TestDiscoveryLocksSearchAndConfirmation(t *testing.T) {
 	m = next.(model)
 	next, cmd = m.Update(press(tea.KeyEnter))
 	if cmd != nil {
-		t.Fatal("failed discovery fell back to legacy search")
+		t.Fatal("search proceeded after failed discovery")
 	}
 	next, cmd = next.Update(tea.KeyPressMsg{Code: 'r', Mod: tea.ModCtrl})
 	m = next.(model)
@@ -362,10 +383,9 @@ func TestPaginationFailurePreservesNavigationAndNewSearchClearsOldItems(t *testi
 	c, _ := client.New("http://127.0.0.1:1")
 	m := newModel(context.Background(), c)
 	m.discoveryPending = false
-	m.pluginsReady = true
 	m.sources = []core.Plugin{{ID: "source", Type: "javdb", Kind: "source"}}
 	m.sourceItems = []core.Item{{ID: "old", Title: "Old", SourceID: "source"}}
-	m.items = itemRows(m.sourceItems)
+	m.items = m.sourceItems
 	m.phase = "results"
 	m.currentCursor = "2"
 	m.previousCursors = []string{""}

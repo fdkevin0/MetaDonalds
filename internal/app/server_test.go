@@ -90,7 +90,7 @@ func TestServeCallsOpenerWhenHTTPIsReady(t *testing.T) {
 				}
 				probe.Close()
 			}
-			cfg := backend.Config{Plugins: &backend.PluginConfig{}}
+			cfg := backend.Config{Plugins: backend.PluginConfig{}}
 			cfg.Server.ListenAddr = listen
 			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 			defer cancel()
@@ -146,7 +146,7 @@ func TestBrowserURLPreservesBoundAddressAndPort(t *testing.T) {
 }
 
 func TestCanceledServeDoesNotOpenBrowser(t *testing.T) {
-	cfg := backend.Config{Plugins: &backend.PluginConfig{}}
+	cfg := backend.Config{Plugins: backend.PluginConfig{}}
 	cfg.Server.ListenAddr = "127.0.0.1:0"
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()

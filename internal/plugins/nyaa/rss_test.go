@@ -1,4 +1,4 @@
-package backend
+package nyaa
 
 import (
 	"context"
@@ -22,7 +22,7 @@ func TestSearchNyaa(t *testing.T) {
 		}
 		return &http.Response{StatusCode: http.StatusOK, Body: io.NopCloser(strings.NewReader(feed))}, nil
 	})}
-	got, err := searchNyaa(context.Background(), client, NyaaConfig{
+	got, err := Search(context.Background(), client, Config{
 		BaseURL: "https://mirror.example/nyaa/?f=0&c=1_2", F: 2, C: "1_0",
 	}, "Frieren & friends")
 	if err != nil || len(got) != 2 {

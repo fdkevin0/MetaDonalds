@@ -3,14 +3,11 @@ package backend
 import (
 	"fmt"
 	"github.com/fdkevin0/MetaDonalds/internal/plugins/javdb"
-	"github.com/fdkevin0/MetaDonalds/internal/plugins/nyaa"
 	"net/url"
 	"path/filepath"
 	"regexp"
 	"strings"
 )
-
-type NyaaConfig = nyaa.Config
 
 type SourceConfig struct {
 	ID      string `mapstructure:"id"`
@@ -28,10 +25,8 @@ type DownloaderConfig struct {
 	Remote   string `mapstructure:"remote"`
 }
 type PluginConfig struct {
-	Sources           []SourceConfig     `mapstructure:"sources"`
-	Downloaders       []DownloaderConfig `mapstructure:"downloaders"`
-	DefaultSource     string             `mapstructure:"default_source"`
-	DefaultDownloader string             `mapstructure:"default_downloader"`
+	Sources     []SourceConfig     `mapstructure:"sources"`
+	Downloaders []DownloaderConfig `mapstructure:"downloaders"`
 }
 
 func enabled(v *bool) bool { return v == nil || *v }
@@ -43,61 +38,23 @@ type DAVCacheConfig struct {
 
 type Config struct {
 	DAVCache DAVCacheConfig `mapstructure:"dav_cache"`
-	Plugins  *PluginConfig  `mapstructure:"plugins"`
+	Plugins  PluginConfig   `mapstructure:"plugins"`
 	Server   struct {
 		ListenAddr string `mapstructure:"listen_addr"`
 	} `mapstructure:"server"`
-	Nyaa   NyaaConfig `mapstructure:"nyaa"`
-	PikPak struct {
-		RCSocket string `mapstructure:"rc_socket"`
-		Remote   string `mapstructure:"remote"`
-	} `mapstructure:"pikpak"`
 }
 
 func (cfg Config) Validate() error {
 	if cfg.DAVCache.Dir != "" && !filepath.IsAbs(cfg.DAVCache.Dir) {
 		return fmt.Errorf("dav_cache.dir must be an absolute path or empty")
 	}
-	if cfg.Plugins != nil {
-		return cfg.validatePlugins()
-	}
-	u, err := url.Parse(cfg.Nyaa.BaseURL)
-	if err != nil || u.Host == "" || (u.Scheme != "http" && u.Scheme != "https") || u.User != nil || u.Fragment != "" {
-		return fmt.Errorf("nyaa.base_url must be an absolute HTTP(S) URL")
-	}
-	if strings.TrimSpace(cfg.Server.ListenAddr) == "" {
-		return fmt.Errorf("server.listen_addr is required")
-	}
-	if !filepath.IsAbs(cfg.PikPak.RCSocket) {
-		return fmt.Errorf("pikpak.rc_socket must be an absolute path")
-	}
-	if !strings.Contains(cfg.PikPak.Remote, ":") {
-		return fmt.Errorf("pikpak.remote must be an rclone remote:path")
-	}
-	return nil
+	return cfg.validatePlugins()
 }
 
-// Instances expands legacy configuration to Nyaa, JavDB and PikPak only when
-// the plugins table is absent. Explicit plugin selections are preserved.
-func (cfg Config) Instances() PluginConfig {
-	if cfg.Plugins != nil {
-		return *cfg.Plugins
-	}
-	return PluginConfig{
-		DefaultSource: "nyaa", DefaultDownloader: "pikpak",
-		Sources: []SourceConfig{
-			{ID: "nyaa", Type: "nyaa", BaseURL: cfg.Nyaa.BaseURL, F: cfg.Nyaa.F, C: cfg.Nyaa.C},
-			{ID: "catalog", Type: "javdb", BaseURL: javdb.DefaultURL},
-		},
-		Downloaders: []DownloaderConfig{
-			{ID: "pikpak", Type: "pikpak-rclone", RCSocket: cfg.PikPak.RCSocket, Remote: cfg.PikPak.Remote},
-		},
-	}
-}
 func (cfg Config) RCSockets() []string {
 	out := []string{}
 	seen := map[string]bool{}
-	for _, d := range cfg.Instances().Downloaders {
+	for _, d := range cfg.Plugins.Downloaders {
 		if enabled(d.Enabled) && !seen[d.RCSocket] {
 			out = append(out, d.RCSocket)
 			seen[d.RCSocket] = true
@@ -114,8 +71,6 @@ func (cfg Config) validatePlugins() error {
 		return fmt.Errorf("server.listen_addr is required")
 	}
 	ids := map[string]bool{}
-	sources := map[string]bool{}
-	downloaders := map[string]bool{}
 	validID := regexp.MustCompile(`^[a-zA-Z0-9_-]{1,64}$`)
 	check := func(id string) error {
 		if !validID.MatchString(id) || ids[id] {
@@ -144,7 +99,6 @@ func (cfg Config) validatePlugins() error {
 		if s.F < 0 || (s.C != "" && !regexp.MustCompile(`^[0-9]+_[0-9]+$`).MatchString(s.C)) {
 			return fmt.Errorf("source %s: invalid filter/category", s.ID)
 		}
-		sources[s.ID] = true
 	}
 	for _, d := range cfg.Plugins.Downloaders {
 		if err := check(d.ID); err != nil {
@@ -158,20 +112,6 @@ func (cfg Config) validatePlugins() error {
 		}
 		if !filepath.IsAbs(d.RCSocket) || !strings.Contains(d.Remote, ":") {
 			return fmt.Errorf("downloader %s requires absolute rc_socket and remote:path", d.ID)
-		}
-		downloaders[d.ID] = true
-	}
-	if d := cfg.Plugins.DefaultSource; d != "" && !sources[d] {
-		return fmt.Errorf("default_source must name an enabled source")
-	}
-	if d := cfg.Plugins.DefaultDownloader; d != "" && !downloaders[d] {
-		return fmt.Errorf("default_downloader must name an enabled downloader")
-	}
-	if d := cfg.Plugins.DefaultSource; d != "" {
-		for _, s := range cfg.Plugins.Sources {
-			if s.ID == d && s.Type != "nyaa" {
-				return fmt.Errorf("legacy default_source must be a Nyaa instance")
-			}
 		}
 	}
 	return nil

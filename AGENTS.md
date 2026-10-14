@@ -17,7 +17,7 @@ It searches Nyaa/JavDB and submits magnet resources to PikPak through rclone. It
   not close the browser on service exit. Only `tui` reuses healthy services;
   `serve` always owns its listener.
 - For configuration loading, use `internal/app/config.go`; for validation, use
-  `internal/backend/config.go`. Examples are `config.example.toml` (legacy) and `config.plugins.example.toml` (instances). For container or release
+  `internal/backend/config.go`. Plugin instances are shown in `config.example.toml`. For container or release
   changes, use `compose.yaml`, `Dockerfile`, and `.github/workflows/docker.yml`.
 
 ## Behavior and validation

@@ -1,4 +1,4 @@
-package backend
+package pikpak
 
 import (
 	"context"
@@ -9,8 +9,10 @@ import (
 	"testing"
 )
 
-func TestSubmitViaRC(t *testing.T) {
-	client := &http.Client{Transport: roundTripFunc(func(r *http.Request) (*http.Response, error) {
+const testHash = "0123456789abcdef0123456789abcdef01234567"
+
+func TestSubmitHash(t *testing.T) {
+	client := &http.Client{Transport: transport(func(r *http.Request) (*http.Response, error) {
 		if r.Method != http.MethodPost || r.URL.Path != "/backend/command" || r.Header.Get("Content-Type") != "application/json" {
 			t.Errorf("wrong RC request: %s %s", r.Method, r.URL)
 		}
@@ -27,13 +29,13 @@ func TestSubmitViaRC(t *testing.T) {
 		}
 		return &http.Response{StatusCode: http.StatusOK, Body: io.NopCloser(strings.NewReader(`{"result":{}}`))}, nil
 	})}
-	if err := submitViaRC(context.Background(), client, "pikpak:My Pack", testHash); err != nil {
+	if err := SubmitHash(context.Background(), client, "pikpak:My Pack", testHash); err != nil {
 		t.Fatal(err)
 	}
-	client.Transport = roundTripFunc(func(*http.Request) (*http.Response, error) {
+	client.Transport = transport(func(*http.Request) (*http.Response, error) {
 		return &http.Response{StatusCode: http.StatusInternalServerError, Body: io.NopCloser(strings.NewReader(`{"error":"failed"}`))}, nil
 	})
-	if err := submitViaRC(context.Background(), client, "pikpak:My Pack", testHash); err == nil {
+	if err := SubmitHash(context.Background(), client, "pikpak:My Pack", testHash); err == nil {
 		t.Fatal("RC failure reported as success")
 	}
 }

@@ -1,48 +1,17 @@
-export type Torrent = {
-  title: string;
-  info_hash: string;
-  seeders: number;
-  size: string;
-  trusted: boolean;
-  remake: boolean;
-  score: number;
-};
-
 class RequestError extends Error {
   constructor(message: string, readonly status: number) { super(message); }
 }
 
 async function request(path: string, init?: RequestInit) {
   const response = await fetch(path, { ...init, redirect: 'error', signal: AbortSignal.timeout(60_000) });
-  const body = await response.json();
+  const body = await response.json().catch(cause => {
+    if (response.ok) throw cause;
+    return {};
+  });
   if (!response.ok) {
-    throw new RequestError(body.detail || body.title || `HTTP ${response.status}`, response.status);
+    throw new RequestError(body?.detail || body?.title || `HTTP ${response.status}`, response.status);
   }
   return body;
-}
-
-export async function search(query: string, filter: string, category: string): Promise<Torrent[]> {
-  const q = query.trim();
-  if (!q || new TextEncoder().encode(q).length > 200) {
-    throw new Error('关键词去除首尾空格后须为 1–200 字节。');
-  }
-  const params = new URLSearchParams({ q });
-  if (filter !== '') params.set('f', filter);
-  if (category.trim() !== '') params.set('c', category.trim());
-  const body = await request(`/api/v1/search?${params}`);
-  if (!Array.isArray(body.results)) throw new Error('搜索响应格式错误。');
-  return body.results;
-}
-
-export async function submit(hash: string): Promise<void> {
-  const body = await request('/api/v1/submit', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ info_hash: hash }),
-  });
-  if (body.status !== 'submitted' || body.info_hash !== hash.toLowerCase()) {
-    throw new Error('提交响应格式错误。');
-  }
 }
 
 export type Plugin = {
@@ -98,7 +67,7 @@ export async function submitResource(downloader: string, resource: Resource): Pr
     body: JSON.stringify({ resource }),
     });
   } catch (cause) {
-    if (cause instanceof RequestError && [400, 404, 405, 422].includes(cause.status)) {
+    if (cause instanceof RequestError && [400, 403, 404, 405, 413, 415, 422].includes(cause.status)) {
       return { status: 'rejected', info_hash: resource.info_hash.toLowerCase(), message: cause.message };
     }
     throw cause;
