@@ -28,6 +28,18 @@ jobs:
       - uses: extractions/setup-just@v4
         with:
           just-version: '1.46.0'
+      - name: Install the Docker-pinned rclone for integration tests
+        shell: bash
+        run: |
+          rclone_version="$(sed -n 's/^FROM rclone\/rclone:\([^ ]*\) AS rclone$/\1/p' Dockerfile)"
+          test -n "$rclone_version"
+          case "$(uname -s)" in Linux) rclone_os=linux ;; Darwin) rclone_os=osx ;; *) exit 1 ;; esac
+          case "$(uname -m)" in x86_64) rclone_arch=amd64 ;; arm64|aarch64) rclone_arch=arm64 ;; *) exit 1 ;; esac
+          rclone_archive="rclone-v${rclone_version}-${rclone_os}-${rclone_arch}"
+          curl -fsSL "https://downloads.rclone.org/v${rclone_version}/${rclone_archive}.zip" -o "${RUNNER_TEMP}/rclone.zip"
+          unzip -q "${RUNNER_TEMP}/rclone.zip" -d "$RUNNER_TEMP"
+          "${RUNNER_TEMP}/${rclone_archive}/rclone" version
+          echo "${RUNNER_TEMP}/${rclone_archive}" >> "$GITHUB_PATH"
       - run: just test build
 
   docker:

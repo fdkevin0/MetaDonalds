@@ -511,6 +511,9 @@ func TestDAVNestedMediaDirectory(t *testing.T) {
 
 func TestDAVRcloneVFSNestedMedia(t *testing.T) {
 	if _, err := exec.LookPath("rclone"); err != nil {
+		if os.Getenv("CI") != "" {
+			t.Fatal("CI requires rclone integration tests: ", err)
+		}
 		t.Skip("rclone is not installed")
 	}
 	d, _, _ := davFake(t)
@@ -1009,6 +1012,9 @@ func TestDAVImagePropertyETagTracksSameSizeChanges(t *testing.T) {
 
 func TestDAVRcloneClient(t *testing.T) {
 	if _, err := exec.LookPath("rclone"); err != nil {
+		if os.Getenv("CI") != "" {
+			t.Fatal("CI requires rclone integration tests: ", err)
+		}
 		t.Skip("rclone is not installed")
 	}
 	d, _, _ := davFake(t)

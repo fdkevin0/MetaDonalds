@@ -27,8 +27,8 @@ finished. A timeout can leave the outcome uncertain; do not add automatic
 submission retries without accounting for duplicate requests.
 
 `just test` builds frontend assets and runs frontend tests and `go test -race ./...`.
-Go tests use in-memory HTTP fakes and temporary files, with no live Nyaa/JavDB,
-rclone, or PikPak access. Run relevant tests, fix failures caused by the change,
+Go tests use HTTP fakes and temporary files, with no live Nyaa/JavDB or PikPak
+access. WebDAV integration tests run real rclone against local fakes; CI requires rclone. Run relevant tests, fix failures caused by the change,
 and rerun them without seeking approval at each step. Documentation-only edits
 normally need link and accuracy checks, not the Go suite.
 

@@ -507,7 +507,8 @@ to include changes in the production WebUI.
 ## Container publishing
 
 The `Docker` GitHub Actions workflow runs frontend and Go tests on Linux and
-macOS, checks both build variants, then builds the Dockerfile and publishes
+macOS, installs the Docker-pinned rclone for mandatory local WebDAV integration
+tests, builds the executable, then builds the Dockerfile and publishes
 `ghcr.io/fdkevin0/metadonalds` using the repository's automatic `GITHUB_TOKEN`;
 no additional registry secrets are needed. Pushes to `main` publish `latest`,
 `main`, and a `sha-<commit>` tag. Pushing a `v*` tag (for example, `v1.0.0`)
