@@ -2,7 +2,7 @@
 default:
     @just --list
 
-# Build the server, browser launcher, and terminal executable.
+# Build the server and terminal executable (serve --open launches the browser).
 build: frontend
     go build -o bin/metadonalds ./cmd/metadonalds
 

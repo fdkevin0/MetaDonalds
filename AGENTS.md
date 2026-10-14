@@ -12,9 +12,10 @@ It searches Nyaa/JavDB and submits magnet resources to PikPak through rclone. It
   and `internal/plugins/javdb`.
 - For PikPak submission, use `internal/plugins/pikpak`. The rclone RC client connects over a
   Unix socket, and rclone owns credentials and token refresh.
-- For commands (`serve`, `web`, `tui`), use `cmd/metadonalds`; for startup and
+- For commands (`serve`, `serve --open`, `tui`), use `cmd/metadonalds`; for startup and
   shutdown, use `internal/app`. Browser launching is in `internal/web`; it must
-  not close the browser or stop a reused service on command exit.
+  not close the browser on service exit. Only `tui` reuses healthy services;
+  `serve` always owns its listener.
 - For configuration loading, use `internal/app/config.go`; for validation, use
   `internal/backend/config.go`. Examples are `config.example.toml` (legacy) and `config.plugins.example.toml` (instances). For container or release
   changes, use `compose.yaml`, `Dockerfile`, and `.github/workflows/docker.yml`.

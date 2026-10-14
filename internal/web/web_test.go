@@ -2,13 +2,13 @@ package web
 
 import (
 	"bytes"
-	"context"
 	"errors"
 	"os"
 	"path/filepath"
 	"reflect"
 	"runtime"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 )
@@ -28,19 +28,32 @@ func TestBrowserCommands(t *testing.T) {
 		t.Fatal("unsupported OS accepted")
 	}
 }
-func TestRunKeepsServiceLifetimeIndependentOfLauncher(t *testing.T) {
+
+type lockedBuffer struct {
+	mu sync.Mutex
+	bytes.Buffer
+}
+
+func (b *lockedBuffer) Write(p []byte) (int, error) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return b.Buffer.Write(p)
+}
+func (b *lockedBuffer) String() string {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return b.Buffer.String()
+}
+func TestOpenReturnsWithoutWaitingForBrowser(t *testing.T) {
 	for _, mode := range []string{"start-error", "exit-error", "exited", "still-running"} {
 		t.Run(mode, func(t *testing.T) {
-			ctx, cancel := context.WithCancel(context.Background())
-			defer cancel()
-			var output bytes.Buffer
-			started := make(chan struct{})
+			var output lockedBuffer
 			launcher := make(chan error, 1)
+			defer close(launcher)
 			start := func(address string) (<-chan error, error) {
 				if address != "http://localhost:8080/" {
 					t.Errorf("address %s", address)
 				}
-				close(started)
 				switch mode {
 				case "start-error":
 					return nil, errors.New("not installed")
@@ -51,43 +64,26 @@ func TestRunKeepsServiceLifetimeIndependentOfLauncher(t *testing.T) {
 				}
 				return launcher, nil
 			}
-			done := make(chan error, 1)
-			go func() { done <- run(ctx, "http://localhost:8080", &output, start) }()
-			<-started
+			done := make(chan struct{})
+			go func() { open("http://localhost:8080/", &output, start); close(done) }()
 			select {
-			case err := <-done:
-				t.Fatalf("launcher ended server lifetime: %v", err)
-			case <-time.After(20 * time.Millisecond):
-			}
-			cancel()
-			select {
-			case err := <-done:
-				if err != nil {
-					t.Fatal(err)
-				}
+			case <-done:
 			case <-time.After(time.Second):
-				t.Fatal("launcher blocked cancellation")
+				t.Fatal("browser blocked server startup")
 			}
 			if !strings.Contains(output.String(), "http://localhost:8080/") {
 				t.Fatal("actual URL missing")
 			}
-			if strings.Contains(mode, "error") && !strings.Contains(output.String(), "manually") {
-				t.Fatal("manual fallback missing")
+			if strings.Contains(mode, "error") {
+				deadline := time.Now().Add(time.Second)
+				for !strings.Contains(output.String(), "manually") && time.Now().Before(deadline) {
+					time.Sleep(time.Millisecond)
+				}
+				if !strings.Contains(output.String(), "manually") {
+					t.Fatal("manual fallback missing")
+				}
 			}
 		})
-	}
-}
-func TestInvalidOrCanceledRunDoesNotOpenBrowser(t *testing.T) {
-	called := false
-	start := func(string) (<-chan error, error) { called = true; return nil, nil }
-	var output bytes.Buffer
-	if err := run(context.Background(), "http://host/path", &output, start); err == nil || called {
-		t.Fatal("invalid URL reached browser")
-	}
-	ctx, cancel := context.WithCancel(context.Background())
-	cancel()
-	if err := run(ctx, "http://localhost:8080", &output, start); err != nil || called {
-		t.Fatal("canceled command opened browser")
 	}
 }
 func TestStartBrowserUsesSeparateURLArgument(t *testing.T) {

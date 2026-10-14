@@ -1,46 +1,31 @@
-// Package web opens the service in the user's browser and keeps the CLI alive.
+// Package web opens a service URL in the user's browser.
 package web
 
 import (
-	"context"
 	"fmt"
 	"io"
 	"os/exec"
 	"runtime"
-
-	"github.com/fdkevin0/MetaDonalds/internal/client"
 )
 
-// Run leaves the browser open on cancellation; its caller owns server cleanup.
-func Run(ctx context.Context, serverURL string, output io.Writer) error {
-	return run(ctx, serverURL, output, startBrowser)
+// Open starts the browser without taking ownership of its or the server's lifetime.
+// Launcher failures are reported while the HTTP service continues running.
+func Open(address string, output io.Writer) {
+	open(address, output, startBrowser)
 }
 
-func run(ctx context.Context, serverURL string, output io.Writer, start func(string) (<-chan error, error)) error {
-	u, err := client.ParseURL(serverURL)
-	if err != nil {
-		return err
-	}
-	if ctx.Err() != nil {
-		return nil
-	}
-	address := u.String() + "/"
-	fmt.Fprintf(output, "MetaDonalds: %s\nPress Ctrl+C to stop this command. Closing the browser does not stop the service.\n", address)
+func open(address string, output io.Writer, start func(string) (<-chan error, error)) {
+	fmt.Fprintf(output, "MetaDonalds: %s\nPress Ctrl+C to stop the service. Closing the browser does not stop it.\n", address)
 	done, err := start(address)
 	if err != nil {
 		fmt.Fprintf(output, "Could not open the browser: %v. Open %s manually.\n", err, address)
+		return
 	}
-	for {
-		select {
-		case <-ctx.Done():
-			return nil
-		case err := <-done:
-			if err != nil {
-				fmt.Fprintf(output, "Browser launcher failed: %v. Open %s manually.\n", err, address)
-			}
-			done = nil
+	go func() {
+		if err := <-done; err != nil {
+			fmt.Fprintf(output, "Browser launcher failed: %v. Open %s manually.\n", err, address)
 		}
-	}
+	}()
 }
 
 func browserCommand(goos, address string) (string, []string, error) {

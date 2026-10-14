@@ -202,9 +202,9 @@ There is no automatic restart or submission retry. With no enabled downloaders,
 the server does not require or launch rclone.
 RC readiness does not verify PikPak credentials or remote availability.
 
-Cobra provides one entry point: `metadonalds serve`, `metadonalds tui`, and
-`metadonalds web`. Run `metadonalds --help` or a subcommand's `--help`
-without a configuration file. Flags use two leading hyphens.
+Cobra provides two commands: `metadonalds serve` and `metadonalds tui`.
+Use `metadonalds serve --open` to start the service and open the browser.
+Run `metadonalds --help` or a subcommand's `--help` without a configuration file. Flags use two leading hyphens.
 
 Viper loads TOML with precedence: explicit flags > environment variables >
 file values > defaults. Configuration files are selected in this order:
@@ -254,7 +254,7 @@ Environment overrides are:
 | `METADONALDS_NYAA_C` | `nyaa.c` |
 | `METADONALDS_PIKPAK_RC_SOCKET` | `pikpak.rc_socket` |
 | `METADONALDS_PIKPAK_REMOTE` | `pikpak.remote` |
-| `METADONALDS_SERVER` | Client server origin (`tui/web --server` overrides it) |
+| `METADONALDS_SERVER` | Client server origin (`tui --server` overrides it) |
 
 The selected or newly initialized file is validated before starting a backend. Unknown file keys and
 incorrect TOML value types are rejected even when overridden. Both standalone
@@ -280,13 +280,13 @@ filters use the service configuration. API documentation remains at `/docs`.
 The production frontend is embedded in the Go binary; it needs no Node runtime
 or CDN. The Docker build compiles and embeds it automatically.
 
-The web and terminal commands check `/healthz` at startup. If the service is
-already running, they reuse it without reading local configuration. If a local
-HTTP service is unavailable, they start the same Go backend inside the client
-process, using the configuration discovery order above. No separate server executable
-or Go toolchain is needed by the built clients.
+The terminal command checks `/healthz` at startup. If the service is already
+running, it reuses it without reading local configuration. If a local HTTP
+service is unavailable, it starts the same Go backend inside the client process,
+using the configuration discovery order above. No separate server executable
+or Go toolchain is needed by the built client.
 
-Automatic startup binds only to the loopback address and port in `--server`,
+Terminal automatic startup binds only to the loopback address and port in `--server`,
 overriding `server.listen_addr` for this run without changing the file. It
 supports `localhost` and loopback IP addresses. Unavailable remote or HTTPS
 origins return an error; an occupied port is never replaced. The client waits
@@ -306,20 +306,24 @@ Open the web interface in your system's default browser:
 
 ```sh
 just build
-./bin/metadonalds web --config /path/to/config.toml
+./bin/metadonalds serve --open --config /path/to/config.toml
 ```
 
-`web` prints the server URL after readiness, then opens it using `open` on macOS,
-`xdg-open` on Linux, or `rundll32` on Windows. Browser requests go directly to the
-service; there is no native window, proxy or separate desktop build. The command
-keeps running until Ctrl+C or SIGTERM. Closing the browser does not stop the
-service, and stopping the command does not close the browser. Only a server
-started by this command is stopped; a reused service remains running.
+`serve --open` starts its own HTTP service, prints the URL once HTTP is ready,
+then opens it using `open` on macOS, `xdg-open` on Linux, or `rundll32` on Windows.
+It uses `server.listen_addr` (or `--listen`), and an occupied port is an error;
+it does not reuse another service. Wildcard addresses open their matching
+loopback address (`0.0.0.0` → `127.0.0.1`, `[::]` → `[::1]`); a specific LAN IP
+is preserved. With `--listen 127.0.0.1:0`, the browser uses the actual assigned
+port. Browser requests go directly to the service; there is no native window,
+proxy or separate desktop build.
 
-If automatic browser opening fails (for example, in a headless environment),
-`web` reports the error and actual URL and keeps the service available for manual
-access until you stop the command. Unsupported operating systems get the same
-manual-open fallback. `web --help` does not load configuration or start a service.
+The command runs until Ctrl+C or SIGTERM, then stops its server. Closing the
+browser does not stop the service, and stopping the command does not close the
+browser. If browser opening fails (for example, in a headless environment), it
+reports the error and URL and keeps the service available for manual access.
+Unsupported operating systems get the same manual-open fallback.
+`serve --help` does not load configuration or start a service.
 
 Run the Bubble Tea v2 + Bubbles terminal client:
 
@@ -463,7 +467,7 @@ just test
 ```
 
 Requires `just`, Bun 1.4.2, and the Go version in `go.mod`. `just build` produces
-`bin/metadonalds` with `serve`, `web`, and `tui`. The build embeds the
+`bin/metadonalds` with `serve` (including `--open`) and `tui`. The build embeds the
 frontend first. `just test` also runs the Go race detector.
 
 Use `metadonalds --version` to print the version without loading configuration or

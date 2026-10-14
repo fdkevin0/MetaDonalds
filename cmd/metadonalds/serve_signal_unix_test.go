@@ -17,9 +17,9 @@ import (
 	"time"
 )
 
-func TestWebTerminalInterruptDoesNotKillBrowser(t *testing.T) {
-	if os.Getenv("METADONALDS_WEB_GROUP_HELPER") == "1" {
-		os.Args = []string{"metadonalds", "web", "--server", os.Getenv("WEB_HELPER_URL"), "--config", os.Getenv("WEB_HELPER_CONFIG")}
+func TestServeOpenTerminalInterruptDoesNotKillBrowser(t *testing.T) {
+	if os.Getenv("METADONALDS_SERVE_GROUP_HELPER") == "1" {
+		os.Args = []string{"metadonalds", "serve", "--open", "--listen", os.Getenv("SERVE_HELPER_LISTEN"), "--config", os.Getenv("SERVE_HELPER_CONFIG")}
 		main()
 		os.Exit(0)
 	}
@@ -52,9 +52,9 @@ func TestWebTerminalInterruptDoesNotKillBrowser(t *testing.T) {
 	}
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
-	process := exec.CommandContext(ctx, executable, "-test.run=^TestWebTerminalInterruptDoesNotKillBrowser$")
+	process := exec.CommandContext(ctx, executable, "-test.run=^TestServeOpenTerminalInterruptDoesNotKillBrowser$")
 	process.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
-	process.Env = append(os.Environ(), "METADONALDS_WEB_GROUP_HELPER=1", "WEB_HELPER_URL="+address, "WEB_HELPER_CONFIG="+path)
+	process.Env = append(os.Environ(), "METADONALDS_SERVE_GROUP_HELPER=1", "SERVE_HELPER_LISTEN="+strings.TrimPrefix(address, "http://"), "SERVE_HELPER_CONFIG="+path)
 	var output bytes.Buffer
 	process.Stdout = &output
 	process.Stderr = &output

@@ -27,6 +27,7 @@ func newCommand() *cobra.Command {
 	root.PersistentFlags().String("config", "", "TOML file (METADONALDS_CONFIG); default: ./config.toml, then XDG metadonalds/config.toml")
 	// Each binding refers to a flag defined immediately above it.
 	_ = settings.BindPFlag("config", root.PersistentFlags().Lookup("config"))
+	var openBrowser bool
 	serve := &cobra.Command{
 		Use: "serve", Short: "Run the HTTP API and WebUI", Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
@@ -38,37 +39,35 @@ func newCommand() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			return app.Serve(cmd.Context(), cfg)
+			var ready func(string)
+			if openBrowser {
+				ready = func(address string) { web.Open(address, cmd.ErrOrStderr()) }
+			}
+			return app.Serve(cmd.Context(), cfg, ready)
 		},
 	}
+	serve.Flags().BoolVar(&openBrowser, "open", false, "open the WebUI in your default browser after startup")
 	serve.Flags().String("listen", "", "override the HTTP listen address (METADONALDS_SERVER_LISTEN_ADDR)")
 	_ = settings.BindPFlag("server.listen_addr", serve.Flags().Lookup("listen"))
 	root.AddCommand(serve)
-	addUI := func(name, description string) {
-		options := viper.New()
-		options.SetEnvPrefix("METADONALDS")
-		options.AutomaticEnv()
-		options.AllowEmptyEnv(true)
-		cmd := &cobra.Command{
-			Use: name, Short: description, Args: cobra.NoArgs,
-			RunE: func(cmd *cobra.Command, _ []string) error {
-				serverURL := options.GetString("server")
-				stop, err := app.Ensure(cmd.Context(), serverURL, settings.GetString("config"))
-				if err != nil {
-					return err
-				}
-				defer stop()
-				if name == "web" {
-					return web.Run(cmd.Context(), serverURL, cmd.ErrOrStderr())
-				}
-				return tui.Run(cmd.Context(), serverURL)
-			},
-		}
-		cmd.Flags().String("server", client.DefaultURL, "MetaDonalds HTTP(S) origin (METADONALDS_SERVER)")
-		_ = options.BindPFlag("server", cmd.Flags().Lookup("server"))
-		root.AddCommand(cmd)
+	options := viper.New()
+	options.SetEnvPrefix("METADONALDS")
+	options.AutomaticEnv()
+	options.AllowEmptyEnv(true)
+	terminal := &cobra.Command{
+		Use: "tui", Short: "Open the terminal interface (auto-start local server if needed)", Args: cobra.NoArgs,
+		RunE: func(cmd *cobra.Command, _ []string) error {
+			serverURL := options.GetString("server")
+			stop, err := app.Ensure(cmd.Context(), serverURL, settings.GetString("config"))
+			if err != nil {
+				return err
+			}
+			defer stop()
+			return tui.Run(cmd.Context(), serverURL)
+		},
 	}
-	addUI("tui", "Open the terminal interface (auto-start local server if needed)")
-	addUI("web", "Open the web interface in your browser (auto-start local server if needed)")
+	terminal.Flags().String("server", client.DefaultURL, "MetaDonalds HTTP(S) origin (METADONALDS_SERVER)")
+	_ = options.BindPFlag("server", terminal.Flags().Lookup("server"))
+	root.AddCommand(terminal)
 	return root
 }
