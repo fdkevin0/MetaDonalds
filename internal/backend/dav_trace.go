@@ -139,6 +139,13 @@ func davFileLabel(parts []string) string {
 		if len(parts) == 2 && davLoggedImage.MatchString(parts[1]) {
 			return "images/" + parts[1]
 		}
+	case "actors":
+		if len(parts) == 1 {
+			return "actors"
+		}
+		if len(parts) == 3 && (parts[2] == "metadata.json" || parts[2] == "avatar.jpg") {
+			return "actors/{actor}/" + parts[2]
+		}
 	case "stream":
 		if len(parts) == 2 && davLoggedVariant.MatchString(parts[1]) {
 			return "stream/" + parts[1]

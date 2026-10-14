@@ -39,19 +39,43 @@ type movie struct {
 }
 
 type Media struct {
-	ID              string `json:"id"`
-	Title           string `json:"title"`
-	Number          string `json:"number"`
-	Summary         string `json:"summary"`
-	Score           string `json:"score"`
-	ReleaseDate     string `json:"release_date"`
-	CoverURL        string `json:"cover_url"`
-	PreviewVideoURL string `json:"preview_video_url"`
-	Duration        int    `json:"duration"`
-	Type            int    `json:"type"`
+	ID              string       `json:"id"`
+	Title           string       `json:"title"`
+	Number          string       `json:"number"`
+	Summary         string       `json:"summary"`
+	Score           string       `json:"score"`
+	ReleaseDate     string       `json:"release_date"`
+	CoverURL        string       `json:"cover_url"`
+	PreviewVideoURL string       `json:"preview_video_url"`
+	Duration        int          `json:"duration"`
+	Type            int          `json:"type"`
+	Actors          []MediaActor `json:"actors"`
 	PreviewImages   []struct {
 		LargeURL string `json:"large_url"`
 	} `json:"preview_images"`
+}
+
+type MediaActor struct {
+	ID        string `json:"id"`
+	Name      string `json:"name"`
+	AvatarURL string `json:"avatar_url"`
+}
+
+// Actor preserves the public profile's nullable and mixed-type fields.
+func (s *Source) Actor(ctx context.Context, id string) (json.RawMessage, error) {
+	if !itemID.MatchString(id) {
+		return nil, fmt.Errorf("invalid actor ID")
+	}
+	var data struct {
+		Actor json.RawMessage `json:"actor"`
+	}
+	if err := s.get(ctx, "/v1/actors/"+id, &data, func() bool {
+		var actor MediaActor
+		return json.Unmarshal(data.Actor, &actor) == nil && actor.ID == id
+	}); err != nil {
+		return nil, err
+	}
+	return data.Actor, nil
 }
 
 func (s *Source) item(m movie) core.Item {

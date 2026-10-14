@@ -166,8 +166,14 @@ to 99 pages; TOP250 combines up to five. Actor, series, and maker directories
 list numbered named folders and expose each entity's movies directly. These browse folders read online
 data and may be empty or unavailable when the public upstream is unavailable.
 An item contains `metadata.json`, `cover.jpg`, `images/` when available,
-`preview.m3u8` when JavDB supplies a preview, and `stream/` for online video
-resolution. `stream/` resolves through the reference site's public
+`preview.m3u8` when JavDB supplies a preview, `actors/` when the movie lists
+actors, and `stream/` for online video resolution. Each
+`actors/<actor-name [ID]>/` folder contains `metadata.json` with the public
+actor profile (including upstream null fields) and `avatar.jpg` when the movie
+supplies an avatar. Actor folders use the same safe naming as the browse tree.
+Actor profiles load only when their metadata or folder contents are requested;
+an unavailable profile does not prevent browsing the movie or playing its preview.
+`stream/` resolves through the reference site's public
 `/api/v/resolve` endpoint when opened; a failed or unavailable resolution gives
 an error there while metadata, images and previews remain browsable. A resolved
 HLS source is a real `.m3u8` playlist with local relative links to playlists,
@@ -175,6 +181,11 @@ segments, keys and maps; a source shown as `.mp4` is exposed only when the
 upstream supplies an actual MP4 with a known length. No magnet is treated as a
 video file. Browsing DAV never submits to PikPak or downloads a magnet.
 
+All DAV media bytes pass through MetaDonalds: the server fetches and decodes
+pictures, rewrites HLS playlists to local DAV links, and proxies video, segments,
+keys, and maps. DAV clients connect to MetaDonalds rather than fetching media
+directly from the external providers; playback therefore uses the server's
+incoming and outgoing bandwidth. Actor photos use the same image path.
 Pictures are decoded from JavDB's public image encoding before serving. Media
 links are short-lived upstream URLs, so reopen a playlist if a segment expires;
 generated local links stay in memory for up to four hours after their last use

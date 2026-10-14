@@ -3,6 +3,7 @@ package backend
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"fmt"
 	"io"
 	"net"
@@ -61,6 +62,14 @@ func (f *davCatalogFake) Media(_ context.Context, id string) (javdb.Media, error
 		return media, nil
 	}
 	return javdb.Media{}, os.ErrNotExist
+}
+func (f *davCatalogFake) Actor(_ context.Context, id string) (json.RawMessage, error) {
+	for _, actor := range f.media.Actors {
+		if actor.ID == id {
+			return json.Marshal(actor)
+		}
+	}
+	return nil, os.ErrNotExist
 }
 func (f *davCatalogFake) CategoryMovies(ctx context.Context, _, _, _ string, page int) (core.Page, error) {
 	return f.Latest(ctx, page)

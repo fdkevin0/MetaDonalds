@@ -26,6 +26,7 @@ type davCatalog interface {
 	Latest(context.Context, int) (core.Page, error)
 	Search(context.Context, string, string) (core.Page, error)
 	Media(context.Context, string) (javdb.Media, error)
+	Actor(context.Context, string) (json.RawMessage, error)
 	CategoryMovies(context.Context, string, string, string, int) (core.Page, error)
 	CategoryTags(context.Context, string) ([]javdb.BrowseTagGroup, error)
 	RankingMovies(context.Context, string, string, string, int) (core.Page, error)
@@ -51,6 +52,7 @@ type davNode struct {
 	dir                                  bool
 	data                                 []byte
 	media                                javdb.Media
+	actor                                javdb.MediaActor
 	modTime                              time.Time
 }
 
@@ -270,6 +272,15 @@ func (d *davServer) itemNode(ctx context.Context, catalog davCatalog, parts []st
 		return davNode{name: parts[0], dir: true, media: m, modTime: itemTime}, nil
 	}
 	switch parts[1] {
+	case "actors":
+		if len(parts) == 2 {
+			return davNode{name: "actors", kind: "actors", dir: true, media: m}, nil
+		}
+		for _, actor := range davActorDirs(m, itemTime) {
+			if parts[2] == actor.name {
+				return d.actorNode(ctx, catalog, actor, parts[3:])
+			}
+		}
 	case "metadata.json":
 		if len(parts) != 2 {
 			break
@@ -423,6 +434,23 @@ func (d *davServer) childrenFresh(ctx context.Context, name string, n davNode) (
 		}
 		return snapshot.nodes, nil
 	}
+	if n.kind == "actors" {
+		return davActorDirs(n.media, n.modTime), nil
+	}
+	if n.kind == "actor" {
+		out := []davNode{}
+		for _, file := range []string{"metadata.json", "avatar.jpg"} {
+			if file == "avatar.jpg" && n.actor.AvatarURL == "" {
+				continue
+			}
+			child, err := d.actorNode(ctx, d.catalogs[parts[0]], n, []string{file})
+			if err != nil {
+				return nil, err
+			}
+			out = append(out, child)
+		}
+		return out, nil
+	}
 	if n.name == "images" {
 		out := []davNode{}
 		for i, image := range n.media.PreviewImages {
@@ -488,8 +516,8 @@ func (d *davServer) childrenFresh(ctx context.Context, name string, n davNode) (
 	}
 	if n.media.ID != "" {
 		out := []davNode{}
-		for _, child := range []string{"metadata.json", "cover.jpg", "images", "preview.m3u8", "media", "stream"} {
-			if child == "cover.jpg" && n.media.CoverURL == "" || child == "preview.m3u8" && n.media.PreviewVideoURL == "" || child == "images" && len(n.media.PreviewImages) == 0 || child == "stream" && n.media.Number == "" {
+		for _, child := range []string{"metadata.json", "cover.jpg", "images", "preview.m3u8", "media", "stream", "actors"} {
+			if child == "cover.jpg" && n.media.CoverURL == "" || child == "preview.m3u8" && n.media.PreviewVideoURL == "" || child == "images" && len(n.media.PreviewImages) == 0 || child == "stream" && n.media.Number == "" || child == "actors" && len(n.media.Actors) == 0 {
 				continue
 			}
 			if child == "media" {
@@ -504,6 +532,10 @@ func (d *davServer) childrenFresh(ctx context.Context, name string, n davNode) (
 			}
 			if child == "images" {
 				out = append(out, davNode{name: "images", dir: true, media: n.media, modTime: n.modTime})
+				continue
+			}
+			if child == "actors" {
+				out = append(out, davNode{name: "actors", kind: "actors", dir: true, media: n.media, modTime: n.modTime})
 				continue
 			}
 			catalog := d.catalogs[parts[0]]
