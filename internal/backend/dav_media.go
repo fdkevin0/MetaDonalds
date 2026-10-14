@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"crypto/rand"
+	"crypto/sha256"
 	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
@@ -552,7 +553,7 @@ func (d *davServer) imageDataMemo(ctx context.Context, raw string) ([]byte, stri
 	}
 	data, mime, err := d.imageData(ctx, raw)
 	if err == nil {
-		if memo, ok := ctx.Value(davMemoKey{}).(*davMemo); ok {
+		if memo, ok := ctx.Value(davMemoKey{}).(*davMemo); ok && !memo.properties {
 			memo.images[raw] = davImage{data: data, mime: mime}
 		}
 	}
@@ -608,7 +609,11 @@ func (d *davServer) imageNode(ctx context.Context, name, raw string) (davNode, e
 	}
 	if complete {
 		if memo, ok := ctx.Value(davMemoKey{}).(*davMemo); ok {
-			memo.images[raw] = davImage{data: decoded, mime: mime}
+			if memo.properties {
+				memo.imageETags[raw] = fmt.Sprintf(`"%x"`, sha256.Sum256(decoded))
+			} else {
+				memo.images[raw] = davImage{data: decoded, mime: mime}
+			}
 		}
 	}
 	probeFields = tracepkg.Fields{Outcome: "ok", Bytes: int64(len(decoded))}

@@ -14,6 +14,7 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/fdkevin0/MetaDonalds/internal/core"
@@ -59,10 +60,12 @@ type davNode struct {
 type davFS struct{ server *davServer }
 type davMemoKey struct{}
 type davMemo struct {
-	snapshots map[string]*flatSnapshot
-	nodes     map[string]davNode
-	children  map[string][]davNode
-	images    map[string]davImage
+	snapshots  map[string]*flatSnapshot
+	nodes      map[string]davNode
+	children   map[string][]davNode
+	images     map[string]davImage
+	imageETags map[string]string
+	properties bool
 }
 
 type davImage struct {
@@ -94,7 +97,7 @@ func (d *davServer) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			trace.mu.Unlock()
 		}
 	}
-	r = r.WithContext(context.WithValue(r.Context(), davMemoKey{}, &davMemo{nodes: map[string]davNode{}, children: map[string][]davNode{}, images: map[string]davImage{}}))
+	r = r.WithContext(context.WithValue(r.Context(), davMemoKey{}, &davMemo{nodes: map[string]davNode{}, children: map[string][]davNode{}, images: map[string]davImage{}, imageETags: map[string]string{}, properties: r.Method == "PROPFIND"}))
 	if r.Method == http.MethodOptions {
 		w.Header().Set("Allow", "OPTIONS, GET, HEAD, PROPFIND")
 		w.Header().Set("DAV", "1")
@@ -496,22 +499,56 @@ func (d *davServer) childrenFresh(ctx context.Context, name string, n davNode) (
 			if len(keys) > 2000 {
 				return nil, errMediaDirectoryLimit
 			}
-			added := false
+			pending := []string{}
 			for _, key := range keys {
-				if seen[key] {
-					continue
+				if !seen[key] {
+					pending = append(pending, key)
 				}
-				child, err := d.lookup(ctx, path.Join(n.parent, key))
-				if err != nil {
-					return nil, err
-				}
-				seen[key] = true
-				out = append(out, child)
-				added = true
 			}
-			if !added {
+			if len(pending) == 0 {
 				return out, nil
 			}
+			workCtx, cancel := context.WithCancel(ctx)
+			nodes := make([]davNode, len(pending))
+			slots := make(chan struct{}, 8)
+			errs := make(chan error, 1)
+			var wg sync.WaitGroup
+		batch:
+			for i, key := range pending {
+				select {
+				case slots <- struct{}{}:
+				case <-workCtx.Done():
+					break batch
+				}
+				wg.Go(func() {
+					defer func() { <-slots }()
+					// Token reads avoid the request-local lookup maps shared by this listing.
+					node, err := d.tokenNode(workCtx, []string{"", "media", key}, 2, path.Join(n.parent, key))
+					if err != nil {
+						select {
+						case errs <- err:
+						default:
+						}
+						cancel()
+						return
+					}
+					nodes[i] = node
+				})
+			}
+			wg.Wait()
+			cancel()
+			select {
+			case err := <-errs:
+				return nil, err
+			default:
+			}
+			if err := ctx.Err(); err != nil {
+				return nil, err
+			}
+			for _, key := range pending {
+				seen[key] = true
+			}
+			out = append(out, nodes...)
 		}
 	}
 	if n.media.ID != "" {
@@ -601,11 +638,19 @@ func (i davInfo) ETag(ctx context.Context) (string, error) {
 		return fmt.Sprintf(`"%x"`, sha256.Sum256(i.data)), nil
 	}
 	if i.kind == "image" {
+		memo, _ := ctx.Value(davMemoKey{}).(*davMemo)
+		if memo != nil && memo.imageETags[i.url] != "" {
+			return memo.imageETags[i.url], nil
+		}
 		data, _, err := i.server.imageDataMemo(ctx, i.url)
 		if err != nil {
 			return "", err
 		}
-		return fmt.Sprintf(`"%x"`, sha256.Sum256(data)), nil
+		etag := fmt.Sprintf(`"%x"`, sha256.Sum256(data))
+		if memo != nil && memo.properties {
+			memo.imageETags[i.url] = etag
+		}
+		return etag, nil
 	}
 	return "", webdav.ErrNotImplemented
 }
