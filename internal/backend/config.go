@@ -36,9 +36,15 @@ type PluginConfig struct {
 
 func enabled(v *bool) bool { return v == nil || *v }
 
+type DAVCacheConfig struct {
+	Dir     string `mapstructure:"dir"`
+	Refresh *bool  `mapstructure:"refresh"`
+}
+
 type Config struct {
-	Plugins *PluginConfig `mapstructure:"plugins"`
-	Server  struct {
+	DAVCache DAVCacheConfig `mapstructure:"dav_cache"`
+	Plugins  *PluginConfig  `mapstructure:"plugins"`
+	Server   struct {
 		ListenAddr string `mapstructure:"listen_addr"`
 	} `mapstructure:"server"`
 	Nyaa   NyaaConfig `mapstructure:"nyaa"`
@@ -49,6 +55,9 @@ type Config struct {
 }
 
 func (cfg Config) Validate() error {
+	if cfg.DAVCache.Dir != "" && !filepath.IsAbs(cfg.DAVCache.Dir) {
+		return fmt.Errorf("dav_cache.dir must be an absolute path or empty")
+	}
 	if cfg.Plugins != nil {
 		return cfg.validatePlugins()
 	}

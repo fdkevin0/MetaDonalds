@@ -57,9 +57,10 @@ type davNode struct {
 type davFS struct{ server *davServer }
 type davMemoKey struct{}
 type davMemo struct {
-	nodes    map[string]davNode
-	children map[string][]davNode
-	images   map[string]davImage
+	snapshots map[string]*flatSnapshot
+	nodes     map[string]davNode
+	children  map[string][]davNode
+	images    map[string]davImage
 }
 
 type davImage struct {
@@ -374,7 +375,7 @@ func (d *davServer) children(ctx context.Context, name string, n davNode) ([]dav
 		children = append([]davNode(nil), children...)
 		for i := range children {
 			if children[i].dir {
-				if current := d.flat.modTime(path.Join(name, children[i].name)); !current.IsZero() {
+				if current := d.flat.modTime(ctx, path.Join(name, children[i].name)); !current.IsZero() {
 					children[i].modTime = current
 				}
 				if children[i].modTime.IsZero() {

@@ -16,3 +16,9 @@ remote = "pikpak:My Pack"
 # To customize or disable sources/downloaders, replace the legacy sections above with
 # [plugins] and [[plugins.sources]] / [[plugins.downloaders]] entries. See README.
 # An explicit [plugins] table disables legacy fallback, even when empty.
+
+[dav_cache]
+# Defaults to metadonalds/dav under the OS user cache directory.
+# Set an absolute dedicated directory to override; dir = "" disables persistence.
+# dir = "/var/cache/metadonalds/dav"
+refresh = true # Refresh recently accessed directories in the background.

@@ -125,15 +125,19 @@ func (d *davServer) flatEntities(ctx context.Context, dir string, catalog davCat
 				return nil, errors.New("upstream repeated entity page")
 			}
 		}
-		snapshot := &flatSnapshot{nodes: make([]davNode, 0, len(entities)), entities: map[string]javdb.BrowseEntity{}}
-		for i, entity := range entities {
-			name := fmt.Sprintf("%04d-%s", i+1, davReadableName(entity.Name, entity.ID))
-			snapshot.nodes = append(snapshot.nodes, davNode{name: name, dir: true})
-			snapshot.entities[name] = entity
-			snapshot.bytes += len(name) + len(entity.ID) + len(entity.Name) + 128
-		}
-		return snapshot, nil
+		return flatEntitySnapshot(entities), nil
 	})
+}
+
+func flatEntitySnapshot(entities []javdb.BrowseEntity) *flatSnapshot {
+	snapshot := &flatSnapshot{nodes: make([]davNode, 0, len(entities)), entities: map[string]javdb.BrowseEntity{}}
+	for i, entity := range entities {
+		name := fmt.Sprintf("%04d-%s", i+1, davReadableName(entity.Name, entity.ID))
+		snapshot.nodes = append(snapshot.nodes, davNode{name: name, dir: true})
+		snapshot.entities[name] = entity
+		snapshot.bytes += len(name) + len(entity.ID) + len(entity.Name) + 128
+	}
+	return snapshot
 }
 
 func (d *davServer) flatTags(ctx context.Context, dir string, catalog davCatalog, typ string) (*flatSnapshot, error) {
@@ -142,17 +146,21 @@ func (d *davServer) flatTags(ctx context.Context, dir string, catalog davCatalog
 		if err != nil {
 			return nil, err
 		}
-		snapshot := &flatSnapshot{nodes: make([]davNode, 0, len(groups)), tags: groups}
-		for _, group := range groups {
-			name := davReadableName(group.Name, group.ID)
-			snapshot.nodes = append(snapshot.nodes, davNode{name: name, dir: true})
-			snapshot.bytes += len(name) + 128
-			for _, tag := range group.Tags {
-				snapshot.bytes += len(tag.Name) + len(tag.ID) + 64
-			}
-		}
-		return snapshot, nil
+		return flatTagSnapshot(groups), nil
 	})
+}
+
+func flatTagSnapshot(groups []javdb.BrowseTagGroup) *flatSnapshot {
+	snapshot := &flatSnapshot{nodes: make([]davNode, 0, len(groups)), tags: groups}
+	for _, group := range groups {
+		name := davReadableName(group.Name, group.ID)
+		snapshot.nodes = append(snapshot.nodes, davNode{name: name, dir: true})
+		snapshot.bytes += len(name) + 128
+		for _, tag := range group.Tags {
+			snapshot.bytes += len(tag.Name) + len(tag.ID) + 64
+		}
+	}
+	return snapshot
 }
 
 func (d *davServer) flatItemNode(ctx context.Context, catalog davCatalog, parts []string, fullPath string, load func() (*flatSnapshot, error)) (davNode, error) {

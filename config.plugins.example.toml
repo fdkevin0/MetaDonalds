@@ -27,3 +27,9 @@ id = "personal"
 type = "pikpak-rclone"
 rc_socket = "/tmp/metadonalds/rclone.sock"
 remote = "pikpak:My Pack"
+
+[dav_cache]
+# Defaults to metadonalds/dav under the OS user cache directory.
+# Set an absolute dedicated directory to override; dir = "" disables persistence.
+# dir = "/var/cache/metadonalds/dav"
+refresh = true # Refresh recently accessed directories in the background.

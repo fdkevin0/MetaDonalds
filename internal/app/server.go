@@ -24,13 +24,15 @@ func Serve(ctx context.Context, cfg backend.Config, ready func(string)) error {
 	defer listener.Close()
 	processes := startDownloaders(ctx, cfg, slog.Default(), os.Stderr)
 	defer stopDownloaders(processes)
+	handler := backend.Handler(cfg, slog.Default())
+	defer handler.Close()
 	slog.Info("starting MetaDonalds", "listen_addr", listener.Addr().String())
 	if ready == nil {
-		return serve(ctx, listener, backend.Handler(cfg, slog.Default()), nil)
+		return serve(ctx, listener, handler, nil)
 	}
 	listening := &readyListener{Listener: listener, ready: make(chan struct{})}
 	done := make(chan error, 1)
-	go func() { done <- serve(ctx, listening, backend.Handler(cfg, slog.Default()), nil) }()
+	go func() { done <- serve(ctx, listening, handler, nil) }()
 	select {
 	case err := <-done:
 		return err

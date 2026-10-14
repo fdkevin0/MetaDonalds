@@ -17,6 +17,7 @@ import (
 
 func temporaryConfigDiscovery(t *testing.T) string {
 	t.Helper()
+	t.Setenv("METADONALDS_DAV_CACHE_DIR", t.TempDir())
 	t.Cleanup(xdg.Reload)
 	t.Chdir(t.TempDir())
 	home := t.TempDir()

@@ -7,9 +7,14 @@ services:
     environment:
       METADONALDS_PIKPAK_RC_SOCKET: /run/rclone/rclone.sock
       RCLONE_CONFIG: /config/rclone/rclone.conf
+      METADONALDS_DAV_CACHE_DIR: /cache/dav
     volumes:
       - ./config.toml:/etc/metadonalds/config.toml:ro
       - ./rclone:/config/rclone
+      - dav-cache:/cache
     tmpfs:
       - /run/rclone:mode=0700
     stop_grace_period: 15s
+
+volumes:
+  dav-cache:

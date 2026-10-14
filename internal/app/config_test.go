@@ -51,6 +51,43 @@ remote = "pikpak:My Pack"
 	}
 }
 
+func TestDAVCacheConfig(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "config.toml")
+	base := "[server]\nlisten_addr = '127.0.0.1:8080'\n[plugins]\n"
+	write := func(extra string) {
+		t.Helper()
+		if err := os.WriteFile(path, []byte(base+extra), 0600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	write("")
+	cfg, err := LoadConfig(path, "")
+	if err != nil || !filepath.IsAbs(cfg.DAVCache.Dir) || cfg.DAVCache.Refresh == nil || !*cfg.DAVCache.Refresh {
+		t.Fatalf("defaults: %+v %v", cfg.DAVCache, err)
+	}
+	write("[dav_cache]\ndir = ''\nrefresh = false\n")
+	cfg, err = LoadConfig(path, "")
+	if err != nil || cfg.DAVCache.Dir != "" || cfg.DAVCache.Refresh == nil || *cfg.DAVCache.Refresh {
+		t.Fatalf("disabled: %+v %v", cfg.DAVCache, err)
+	}
+	write("[dav_cache]\ndir = 'relative'\n")
+	if _, err := LoadConfig(path, ""); err == nil {
+		t.Fatal("relative cache directory accepted")
+	}
+	write("[dav_cache]\nrefresh = 'false'\n")
+	if _, err := LoadConfig(path, ""); err == nil {
+		t.Fatal("string boolean accepted")
+	}
+	write("")
+	dir := t.TempDir()
+	t.Setenv("METADONALDS_DAV_CACHE_DIR", dir)
+	t.Setenv("METADONALDS_DAV_CACHE_REFRESH", "false")
+	cfg, err = LoadConfig(path, "")
+	if err != nil || cfg.DAVCache.Dir != dir || cfg.DAVCache.Refresh == nil || *cfg.DAVCache.Refresh {
+		t.Fatalf("environment: %+v %v", cfg.DAVCache, err)
+	}
+}
+
 func TestConfigOverrides(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "config.toml")
 	content := "[server]\nlisten_addr = '127.0.0.1:8080'\n[nyaa]\nbase_url = 'https://nyaa.si/'\n[pikpak]\nrc_socket = '/tmp/rclone.sock'\nremote = 'pikpak:'\n"

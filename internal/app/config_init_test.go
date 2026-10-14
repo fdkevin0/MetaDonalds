@@ -18,6 +18,7 @@ import (
 
 func isolatedConfigHome(t *testing.T) (string, string) {
 	t.Helper()
+	t.Setenv("METADONALDS_DAV_CACHE_DIR", t.TempDir())
 	t.Cleanup(xdg.Reload)
 	t.Chdir(t.TempDir())
 	home := filepath.Join(t.TempDir(), "config-home")

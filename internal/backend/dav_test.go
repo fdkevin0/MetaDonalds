@@ -163,6 +163,7 @@ func davFake(t *testing.T) (*davServer, *davCatalogFake, *int) {
 		return &http.Response{StatusCode: status, Header: headers, Body: io.NopCloser(bytes.NewReader(body)), ContentLength: int64(totalIfRange(status, headers, total)), Request: r}, nil
 	})}
 	d := newDAV(map[string]davCatalog{"catalog": f}, client, "https://reference.example").(*davServer)
+	t.Cleanup(d.flat.close)
 	return d, f, &resolveCalls
 }
 
@@ -571,6 +572,7 @@ func TestDAVRcloneVFSNestedMedia(t *testing.T) {
 func TestDAVAssemblyRoute(t *testing.T) {
 	cfg := Config{Plugins: &PluginConfig{Sources: []SourceConfig{{ID: "catalog", Type: "javdb"}}}}
 	h := Handler(cfg, nil)
+	t.Cleanup(h.Close)
 	if w := davRequest(t, h, "PROPFIND", "/dav/", "1", ""); w.Code != 207 || !strings.Contains(w.Body.String(), "catalog") {
 		t.Fatalf("assembled DAV route: %d %s", w.Code, w.Body.String())
 	}
@@ -736,6 +738,7 @@ func TestDAVFlatPagesMetadataAndRefresh(t *testing.T) {
 	}
 	d.flat.mu.Lock()
 	d.flat.entries["movies:/catalog/latest"].expiresAt = time.Now().Add(-time.Second)
+	d.flat.entries["movies:/catalog/latest"].fetchedAt = time.Now().Add(-flatMaxAge)
 	d.flat.mu.Unlock()
 	time.Sleep(time.Second) // DAV modification times have one-second precision.
 	fresh := davRequest(t, d, "PROPFIND", base, "1", "")
@@ -809,7 +812,7 @@ func TestDAVNestedDirectoryMtimeUsesLoadedChildSnapshot(t *testing.T) {
 			if _, err := d.children(ctx, tc.parent, parent); err != nil {
 				t.Fatal(err)
 			}
-			old := time.Date(2001, 1, 1, 0, 0, 0, 0, time.UTC)
+			old := time.Now().UTC().Add(-time.Minute).Truncate(time.Second)
 			d.flat.mu.Lock()
 			entry := d.flat.entries[tc.key]
 			entry.fetchedAt = old
@@ -945,6 +948,7 @@ func TestDAVFileDatesAndContentValidators(t *testing.T) {
 	f.media.ReleaseDate = "2099-01-01"
 	d.flat.mu.Lock()
 	d.flat.entries["movies:/catalog/latest"].expiresAt = time.Now().Add(-time.Second)
+	d.flat.entries["movies:/catalog/latest"].fetchedAt = time.Now().Add(-flatMaxAge)
 	d.flat.mu.Unlock()
 	future := davRequest(t, d, "GET", base+"metadata.json", "", "")
 	if future.Header().Get("Last-Modified") != "" {

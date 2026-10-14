@@ -189,8 +189,48 @@ to five minutes, and the cache clears on service restart. Cover and preview
 URLs contained in cached detail JSON follow the same five-minute TTL. Resolver
 responses, video bytes, and HLS playlists are outside this API cache. The
 flattened DAV directories have a separate five-minute snapshot cache capped at
-32 listings, 16 MiB, and 9,999 entries per listing. A refresh may take up to
-60 seconds; an upstream failure returns an error instead of a partial listing.
+32 listings, 16 MiB, and 9,999 entries per listing. After five minutes, a request
+returns the complete old snapshot immediately and starts a refresh. Old snapshots
+are usable for at most two hours from their fetch time. With no usable snapshot,
+the request waits for a refresh (up to 60 seconds); failure returns an error.
+A failed refresh never publishes a partial directory or extends its deadline.
+Each DAV request pins the snapshots it reads, so a refresh cannot mix directory
+versions within that request. Numbered movie/entity paths may still change
+between requests after a refresh; reopen the parent listing if a path disappears.
+
+A single background worker checks every 30 seconds for expired directories used
+by clients in the last 30 minutes. It shares in-flight reads with requests,
+yields to existing directory fetches, and backs off failed refreshes from 30
+seconds to 15 minutes. Background work does not extend the activity window.
+It refreshes complete directories within the existing page/size/time limits;
+it does not crawl unseen directories or prefetch media.
+
+Complete directory snapshots are persisted on Unix systems under
+`<OS user cache directory>/metadonalds/dav` (typically
+`~/.cache/metadonalds/dav` on Linux). Disk storage is also capped at 32 snapshots
+and 16 MiB, with an atomic replacement per successful refresh. Snapshots retain
+their original age after restart and are discarded if corrupt, expired, or
+from a different source configuration. The dedicated directory is private
+(0700, files 0600) and permits one writer. Lock/write failures degrade to memory
+caching and emit a warning. On other platforms persistence is unavailable and
+the service uses memory caching.
+
+```toml
+[dav_cache]
+# Optional absolute dedicated directory; empty disables persistence.
+# dir = "/var/cache/metadonalds/dav"
+refresh = true
+```
+
+`METADONALDS_DAV_CACHE_DIR` and `METADONALDS_DAV_CACHE_REFRESH` override these
+settings. Disabling periodic refresh still allows request-triggered refreshes.
+Compose mounts a `dav-cache` volume at `/cache` and uses `/cache/dav`.
+Persisted snapshots contain directory metadata and search paths, not credentials,
+media tokens, images, videos, or complete movie details. Cached listings therefore
+do not make movie files available offline. Stop the service before removing its
+cache directory. The worker and in-flight directory requests stop with the owning
+service; attaching a TUI to an existing service does not start another worker.
+
 Static DAV directories use the service start time as their modification time;
 loaded browse directories use their snapshot time. Movie folders and their
 metadata, cover, sample images, playlists, and streamed files display the

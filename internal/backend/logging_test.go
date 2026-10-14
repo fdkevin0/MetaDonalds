@@ -310,6 +310,7 @@ func TestDAVRequestLogs(t *testing.T) {
 	fake.failPage = 1
 	d.flat.mu.Lock()
 	d.flat.entries["movies:/catalog/latest"].expiresAt = time.Now().Add(-time.Second)
+	d.flat.entries["movies:/catalog/latest"].fetchedAt = time.Now().Add(-flatMaxAge)
 	d.flat.mu.Unlock()
 	failed := request("PROPFIND", "/dav/catalog/latest/", "1")
 	if failed["status"] != float64(502) || failed["level"] != "ERROR" || failed["dav_listing_cache"] != "refresh" || failed["dav_failure_stage"] != "movies" || failed["dav_failure_category"] != "upstream" {

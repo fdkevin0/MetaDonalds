@@ -31,6 +31,7 @@ func freeAddress(t *testing.T) string {
 
 func startupConfig(t *testing.T, upstream string) string {
 	t.Helper()
+	t.Setenv("METADONALDS_DAV_CACHE_DIR", t.TempDir())
 	fakeRclone(t)
 	dir := shortDir(t)
 	for _, name := range []string{"TMPDIR", "TMP", "TEMP"} {
@@ -147,6 +148,7 @@ func TestEnsureDoesNotReplaceOccupiedPort(t *testing.T) {
 }
 
 func TestExampleConfigStartsWithoutSystemDirectories(t *testing.T) {
+	t.Setenv("METADONALDS_DAV_CACHE_DIR", t.TempDir())
 	fakeRclone(t)
 	dir := shortDir(t)
 	for _, name := range []string{"TMPDIR", "TMP", "TEMP"} {

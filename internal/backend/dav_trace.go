@@ -41,7 +41,7 @@ func (t *davTrace) recordList(outcome string, items int, duration time.Duration)
 	t.mu.Lock()
 	defer t.mu.Unlock()
 	// A PROPFIND may look up the same listing twice. Keep the expensive outcome.
-	priority := map[string]int{"": 0, "hit": 1, "coalesced": 2, "miss": 3, "refresh": 4}
+	priority := map[string]int{"": 0, "hit": 1, "stale": 2, "coalesced": 2, "miss": 3, "refresh": 4}
 	if priority[outcome] >= priority[t.cache] {
 		t.cache, t.listItems, t.listDuration = outcome, items, duration
 	}

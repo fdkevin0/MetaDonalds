@@ -27,7 +27,9 @@ func TestGenericAPIsAndLegacyCompatibility(t *testing.T) {
 	}))
 	defer upstream.Close()
 	cfg := Config{Plugins: &PluginConfig{Sources: []SourceConfig{{ID: "mirror", Type: "nyaa", BaseURL: upstream.URL}}, DefaultSource: "mirror"}}
-	handler := Handler(cfg, nil)
+	service := Handler(cfg, nil)
+	t.Cleanup(service.Close)
+	var handler http.Handler = service
 	request := func(method, path, body string) *httptest.ResponseRecorder {
 		r := httptest.NewRequest(method, path, strings.NewReader(body))
 		if body != "" {

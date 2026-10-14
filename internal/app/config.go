@@ -33,12 +33,16 @@ func LoadConfig(path, listenOverride string) (backend.Config, error) {
 		return cfg, fmt.Errorf("invalid configuration %q: %w", path, err)
 	}
 	v.SetDefault("pikpak.rc_socket", filepath.Join(os.TempDir(), fmt.Sprintf("metadonalds-%d", os.Getuid()), "rclone.sock"))
+	if cacheDir, err := os.UserCacheDir(); err == nil {
+		v.SetDefault("dav_cache.dir", filepath.Join(cacheDir, "metadonalds", "dav"))
+	}
+	v.SetDefault("dav_cache.refresh", true)
 	v.SetDefault("nyaa.f", 0)
 	v.SetDefault("nyaa.c", "0_0")
 	v.SetEnvPrefix("METADONALDS")
 	v.SetEnvKeyReplacer(strings.NewReplacer(".", "_"))
 	v.AllowEmptyEnv(true)
-	for _, key := range []string{"server.listen_addr", "nyaa.base_url", "nyaa.f", "nyaa.c", "pikpak.rc_socket", "pikpak.remote"} {
+	for _, key := range []string{"dav_cache.dir", "dav_cache.refresh", "server.listen_addr", "nyaa.base_url", "nyaa.f", "nyaa.c", "pikpak.rc_socket", "pikpak.remote"} {
 		if err := v.BindEnv(key); err != nil {
 			return cfg, err
 		}

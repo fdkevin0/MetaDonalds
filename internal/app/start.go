@@ -67,11 +67,13 @@ func Ensure(ctx context.Context, serverURL, configPath string) (func(), error) {
 	logger := slog.New(slog.NewJSONHandler(logs, nil))
 	processes := startDownloaders(ctx, cfg, logger, logs)
 	lifetime, cancel := context.WithCancel(context.Background())
+	handler := backend.Handler(cfg, logger)
 	done := make(chan struct{})
 	go func() {
-		if err := serve(lifetime, listener, backend.Handler(cfg, logger), nil); err != nil {
+		if err := serve(lifetime, listener, handler, nil); err != nil {
 			logger.Error("HTTP server stopped", "error", err)
 		}
+		handler.Close()
 		close(done)
 	}()
 	stop := sync.OnceFunc(func() {
