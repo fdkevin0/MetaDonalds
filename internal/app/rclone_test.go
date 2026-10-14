@@ -10,6 +10,7 @@ import (
 	"os/signal"
 	"path/filepath"
 	"strings"
+	"syscall"
 	"testing"
 	"time"
 
@@ -233,20 +234,48 @@ func TestRcloneCleanupAfterCrash(t *testing.T) {
 }
 
 func TestRcloneCleanupPreservesReplacement(t *testing.T) {
-	p := startTestRclone(t)
-	if err := p.cmd.Process.Kill(); err != nil {
-		t.Fatal(err)
-	}
-	<-p.done
-	if err := os.Remove(p.socket); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(p.socket, []byte("replacement"), 0600); err != nil {
-		t.Fatal(err)
-	}
-	p.stop()
-	data, err := os.ReadFile(p.socket)
-	if err != nil || string(data) != "replacement" {
-		t.Fatalf("replacement removed: %v", err)
+	for _, kind := range []string{"file", "socket"} {
+		t.Run(kind, func(t *testing.T) {
+			p := startTestRclone(t)
+			if err := p.cmd.Process.Kill(); err != nil {
+				t.Fatal(err)
+			}
+			<-p.done
+			if err := os.Remove(p.socket); err != nil {
+				t.Fatal(err)
+			}
+			if kind == "socket" {
+				listener, err := net.ListenUnix("unix", &net.UnixAddr{Name: p.socket, Net: "unix"})
+				if err != nil {
+					t.Fatal(err)
+				}
+				listener.SetUnlinkOnClose(false)
+				defer listener.Close()
+			} else if err := os.WriteFile(p.socket, []byte("replacement"), 0600); err != nil {
+				t.Fatal(err)
+			}
+			modified := p.socketInfo.ModTime().Add(time.Second)
+			if err := os.Chtimes(p.socket, modified, modified); err != nil {
+				t.Fatal(err)
+			}
+			replacement, err := os.Lstat(p.socket)
+			if err != nil {
+				t.Fatal(err)
+			}
+			// Make inode reuse deterministic instead of depending on the filesystem allocator.
+			originalStat := p.socketInfo.Sys().(*syscall.Stat_t)
+			originalStat.Ino = replacement.Sys().(*syscall.Stat_t).Ino
+			p.stop()
+			after, err := os.Lstat(p.socket)
+			if err != nil || !os.SameFile(replacement, after) {
+				t.Fatalf("replacement removed: %v", err)
+			}
+			if kind == "file" {
+				data, err := os.ReadFile(p.socket)
+				if err != nil || string(data) != "replacement" {
+					t.Fatalf("replacement modified: %v", err)
+				}
+			}
+		})
 	}
 }

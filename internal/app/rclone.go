@@ -139,7 +139,8 @@ func removeSocket(path string, original os.FileInfo) error {
 	if err != nil {
 		return fmt.Errorf("inspect rclone socket: %w", err)
 	}
-	if !os.SameFile(original, current) {
+	// An unlinked inode can be reused by a replacement file or socket.
+	if current.Mode()&os.ModeSocket == 0 || !os.SameFile(original, current) || !original.ModTime().Equal(current.ModTime()) {
 		return fmt.Errorf("rclone socket %q changed during cleanup", path)
 	}
 	if err := os.Remove(path); err != nil {
