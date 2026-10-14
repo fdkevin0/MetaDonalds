@@ -1,4 +1,6 @@
-# Explicit instances replace the legacy [nyaa]/[pikpak] configuration.
+# Explicit instances replace the default Nyaa + JavDB + PikPak selection.
+# This example uses the custom downloader ID personal; legacy defaults use pikpak.
+# Remove the catalog entry to opt out of JavDB; no instances are added implicitly.
 [server]
 listen_addr = "127.0.0.1:8080"
 
@@ -10,7 +12,7 @@ default_downloader = "personal"
 [[plugins.sources]]
 id = "nyaa"
 type = "nyaa"
-base_url = "https://nyaa.si/"
+base_url = "https://sukebei.nyaa.si/"
 f = 0
 c = "0_0"
 

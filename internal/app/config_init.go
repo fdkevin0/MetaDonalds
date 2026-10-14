@@ -9,8 +9,10 @@ import (
 	"github.com/adrg/xdg"
 )
 
-// First-run defaults use the legacy providers without exposing the local API.
-const defaultConfig = `[server]
+// First-run defaults enable Nyaa, JavDB and PikPak without exposing the local API.
+const defaultConfig = `# Without [plugins], enabled instances are nyaa (Nyaa), catalog (JavDB),
+# and pikpak (PikPak). Nyaa remains the default source.
+[server]
 listen_addr = "127.0.0.1:8080"
 
 [nyaa]

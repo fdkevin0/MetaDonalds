@@ -68,12 +68,22 @@ func (cfg Config) Validate() error {
 	return nil
 }
 
-// Instances preserves legacy configuration only when the plugins table is absent.
+// Instances expands legacy configuration to Nyaa, JavDB and PikPak only when
+// the plugins table is absent. Explicit plugin selections are preserved.
 func (cfg Config) Instances() PluginConfig {
 	if cfg.Plugins != nil {
 		return *cfg.Plugins
 	}
-	return PluginConfig{DefaultSource: "nyaa", DefaultDownloader: "pikpak", Sources: []SourceConfig{{ID: "nyaa", Type: "nyaa", BaseURL: cfg.Nyaa.BaseURL, F: cfg.Nyaa.F, C: cfg.Nyaa.C}}, Downloaders: []DownloaderConfig{{ID: "pikpak", Type: "pikpak-rclone", RCSocket: cfg.PikPak.RCSocket, Remote: cfg.PikPak.Remote}}}
+	return PluginConfig{
+		DefaultSource: "nyaa", DefaultDownloader: "pikpak",
+		Sources: []SourceConfig{
+			{ID: "nyaa", Type: "nyaa", BaseURL: cfg.Nyaa.BaseURL, F: cfg.Nyaa.F, C: cfg.Nyaa.C},
+			{ID: "catalog", Type: "javdb", BaseURL: javdb.DefaultURL},
+		},
+		Downloaders: []DownloaderConfig{
+			{ID: "pikpak", Type: "pikpak-rclone", RCSocket: cfg.PikPak.RCSocket, Remote: cfg.PikPak.Remote},
+		},
+	}
 }
 func (cfg Config) RCSockets() []string {
 	out := []string{}

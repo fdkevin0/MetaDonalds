@@ -7,6 +7,8 @@ import (
 	"testing"
 
 	"github.com/adrg/xdg"
+	"github.com/fdkevin0/MetaDonalds/internal/backend"
+	"github.com/fdkevin0/MetaDonalds/internal/plugins/javdb"
 )
 
 func TestConfig(t *testing.T) {
@@ -32,6 +34,7 @@ remote = "pikpak:My Pack"
 	if err != nil || cfg.Nyaa.BaseURL != "https://mirror.example/nyaa/" || cfg.Nyaa.F != 0 || cfg.Nyaa.C != "0_0" {
 		t.Fatalf("config: %#v, %v", cfg, err)
 	}
+	assertDefaultInstances(t, cfg)
 	custom := strings.Replace(content, "[nyaa]", "[nyaa]\nf = 2\nc = \"1_0\"", 1)
 	if err := os.WriteFile(path, []byte(custom), 0600); err != nil {
 		t.Fatal(err)
@@ -173,5 +176,57 @@ func TestExplicitPluginsDisableLegacyAndValidateInstances(t *testing.T) {
 				t.Fatal("shared socket not deduplicated")
 			}
 		})
+	}
+}
+
+func assertDefaultInstances(t *testing.T, cfg backend.Config) {
+	t.Helper()
+	plugins := cfg.Instances()
+	if plugins.DefaultSource != "nyaa" || plugins.DefaultDownloader != "pikpak" || len(plugins.Sources) != 2 || len(plugins.Downloaders) != 1 {
+		t.Fatalf("unexpected default instances: %+v", plugins)
+	}
+	nyaa, catalog, pikpak := plugins.Sources[0], plugins.Sources[1], plugins.Downloaders[0]
+	if nyaa.ID != "nyaa" || nyaa.Type != "nyaa" || nyaa.BaseURL != cfg.Nyaa.BaseURL || nyaa.F != cfg.Nyaa.F || nyaa.C != cfg.Nyaa.C || catalog.ID != "catalog" || catalog.Type != "javdb" || catalog.BaseURL != javdb.DefaultURL || pikpak.ID != "pikpak" || pikpak.Type != "pikpak-rclone" || pikpak.Remote != cfg.PikPak.Remote {
+		t.Fatalf("incorrect default wiring: %+v", plugins)
+	}
+}
+
+func TestLegacyAndExampleDefaultInstances(t *testing.T) {
+	for _, path := range []string{"../../config.example.toml", "../../config.plugins.example.toml"} {
+		before, err := os.ReadFile(path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		cfg, err := LoadConfig(path, "")
+		if err != nil {
+			t.Fatal(err)
+		}
+		if cfg.Plugins == nil {
+			assertDefaultInstances(t, cfg)
+		}
+		plugins := cfg.Instances()
+		if len(plugins.Sources) != 2 || plugins.Sources[0].ID != "nyaa" || plugins.Sources[1].ID != "catalog" || plugins.Sources[1].Type != "javdb" || len(plugins.Downloaders) != 1 || plugins.DefaultSource != "nyaa" {
+			t.Fatalf("example defaults: %+v", plugins)
+		}
+		after, err := os.ReadFile(path)
+		if err != nil || string(after) != string(before) {
+			t.Fatalf("existing file modified: %s", path)
+		}
+	}
+}
+
+func TestExplicitNyaaOnlyDoesNotAddJavDB(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "config.toml")
+	data := "[server]\nlisten_addr='127.0.0.1:8080'\n[plugins]\ndefault_source='only-nyaa'\n[[plugins.sources]]\nid='only-nyaa'\ntype='nyaa'\nbase_url='https://nyaa.si/'\n"
+	if err := os.WriteFile(path, []byte(data), 0600); err != nil {
+		t.Fatal(err)
+	}
+	cfg, err := LoadConfig(path, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	instances := cfg.Instances()
+	if len(instances.Sources) != 1 || instances.Sources[0].ID != "only-nyaa" || len(instances.Downloaders) != 0 {
+		t.Fatalf("explicit selections changed: %+v", instances)
 	}
 }

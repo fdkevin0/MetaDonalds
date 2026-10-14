@@ -33,9 +33,13 @@ Restart MetaDonalds after changing the configuration.
 
 ### Plugin instances
 
-The existing `[nyaa]` / `[pikpak]` configuration still works and creates instances
-named `nyaa` and `pikpak`. Adding a `[plugins]` table switches entirely to explicit
-instances; even an empty table disables the legacy fallback. A complete example is
+Without a `[plugins]` table, the existing `[nyaa]` / `[pikpak]` configuration
+creates `nyaa` (Nyaa), `catalog` (JavDB) and `pikpak` (PikPak) instances. This also
+adds JavDB when loading an existing legacy file, without rewriting that file.
+Nyaa remains the default source for compatibility. Adding a `[plugins]` table
+switches entirely to explicit instances; even an empty table disables the
+fallback. To opt out of JavDB, list only the sources you want in `[plugins]`.
+A complete example, using the custom downloader ID `personal`, is
 [config.plugins.example.toml](config.plugins.example.toml):
 
 ```toml
@@ -49,7 +53,7 @@ default_downloader = "personal" # Optional: target for the legacy submit endpoin
 [[plugins.sources]]
 id = "nyaa"
 type = "nyaa"
-base_url = "https://nyaa.si/"
+base_url = "https://sukebei.nyaa.si/"
 f = 0
 c = "0_0"
 
@@ -233,9 +237,9 @@ path. New directories use mode `0700` and the file uses `0600` on Unix. Existing
 files are never overwritten, including when two commands start simultaneously.
 An existing system config still takes precedence over creating a new user config.
 
-The generated configuration uses the legacy Nyaa/PikPak defaults and listens on
-`127.0.0.1:8080`; the Compose example instead listens on `0.0.0.0:8080`.
-JavDB is not enabled automatically. Search remains available if rclone is missing;
+The generated configuration enables Nyaa, JavDB and PikPak through the legacy
+fallback described above and listens on `127.0.0.1:8080`; the Compose example
+instead listens on `0.0.0.0:8080`. Search remains available if rclone is missing;
 configure the PikPak remote before submitting downloads. A missing explicit
 `--config` or `METADONALDS_CONFIG` path remains an error. Help commands and clients
 that reuse an already healthy service do not create configuration files.

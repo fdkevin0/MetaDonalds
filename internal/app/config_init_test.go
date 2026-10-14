@@ -45,6 +45,7 @@ func TestInitializeMissingConfiguration(t *testing.T) {
 	if cfg.Server.ListenAddr != "127.0.0.1:8080" || cfg.Nyaa.BaseURL != "https://sukebei.nyaa.si/" || cfg.PikPak.Remote != "pikpak:My Pack" || cfg.Plugins != nil {
 		t.Fatalf("unexpected defaults: %+v", cfg)
 	}
+	assertDefaultInstances(t, cfg)
 	data, err := os.ReadFile(path)
 	if err != nil || string(data) != defaultConfig {
 		t.Fatalf("default file: %q %v", data, err)
@@ -67,6 +68,10 @@ func TestInitializeMissingConfiguration(t *testing.T) {
 	cfg, err = LoadConfig("", "")
 	if err != nil || cfg.PikPak.Remote != "custom:Folder" {
 		t.Fatalf("existing config overwritten: %v %v", cfg, err)
+	}
+	assertDefaultInstances(t, cfg)
+	if data, err := os.ReadFile(path); err != nil || string(data) != changed {
+		t.Fatalf("existing file changed: %q %v", data, err)
 	}
 	if strings.Count(output.String(), "initialized default configuration") != 1 {
 		t.Fatal("initialization reported twice")
