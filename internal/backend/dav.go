@@ -34,14 +34,15 @@ type davCatalog interface {
 }
 
 type davServer struct {
-	catalogs    map[string]davCatalog
-	flat        flatCache
-	startedAt   time.Time
-	client      *http.Client
-	resolveBase string
-	tokens      *mediaTokens
-	playlists   *playlistCache
-	webdav      *webdav.Handler
+	catalogs         map[string]davCatalog
+	flat             flatCache
+	startedAt        time.Time
+	client           *http.Client
+	resolveBase      string
+	tokens           *mediaTokens
+	playlists        *playlistCache
+	webdav           *webdav.Handler
+	mediaIdleTimeout time.Duration
 }
 
 type davNode struct {
@@ -76,7 +77,7 @@ func newDAV(catalogs map[string]davCatalog, client *http.Client, resolveBase str
 	if resolveBase == "" {
 		resolveBase = "https://catembylegacy.fastcdn.dpdns.org"
 	}
-	d := &davServer{catalogs: catalogs, client: client, resolveBase: resolveBase, tokens: newMediaTokens(), playlists: newPlaylistCache(), startedAt: time.Now().UTC()}
+	d := &davServer{catalogs: catalogs, client: client, resolveBase: resolveBase, tokens: newMediaTokens(), playlists: newPlaylistCache(), startedAt: time.Now().UTC(), mediaIdleTimeout: defaultMediaIdleTimeout}
 	d.webdav = &webdav.Handler{Prefix: "/dav", FileSystem: davFS{d}, LockSystem: webdav.NewMemLS()}
 	return d
 }

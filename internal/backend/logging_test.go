@@ -7,12 +7,137 @@ import (
 	"errors"
 	"io"
 	"log/slog"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"strings"
 	"testing"
 	"time"
 )
+
+type partialErrorBody struct{ remaining int }
+
+func (b *partialErrorBody) Read(p []byte) (int, error) {
+	if b.remaining > 0 {
+		n := min(len(p), b.remaining)
+		for i := range p[:n] {
+			p[i] = 'x'
+		}
+		b.remaining -= n
+		return n, nil
+	}
+	return 0, io.ErrUnexpectedEOF
+}
+
+func (b *partialErrorBody) Close() error { return nil }
+
+func TestDAVProxyCopyFailureAbortsRealResponse(t *testing.T) {
+	var output bytes.Buffer
+	logger := slog.New(slog.NewJSONHandler(&output, nil))
+	d := &davServer{client: &http.Client{Transport: davRoundTrip(func(r *http.Request) (*http.Response, error) {
+		return &http.Response{StatusCode: http.StatusOK, Header: http.Header{"Content-Type": []string{"video/mp4"}}, ContentLength: -1, Body: &partialErrorBody{remaining: 64 << 10}, Request: r}, nil
+	})}}
+	srv := httptest.NewServer(logRequests(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		r.Pattern = "/dav/{path...}"
+		d.proxyMedia(w, r, "https://media.example/video.mp4")
+	}), logger))
+	defer srv.Close()
+	resp, err := srv.Client().Get(srv.URL + "/dav/video.mp4")
+	var data []byte
+	readErr := err
+	if err == nil {
+		data, readErr = io.ReadAll(resp.Body)
+		resp.Body.Close()
+	}
+	if err != nil || resp.StatusCode != http.StatusOK || len(data) < 4096 {
+		t.Fatalf("expected a partial HTTP 200 body before abort: status=%v bytes=%d err=%v", resp, len(data), err)
+	}
+	if readErr == nil {
+		t.Fatalf("partial upstream body completed as clean HTTP %d with %q", resp.StatusCode, data)
+	}
+	entries := traceEntries(t, output.Bytes())
+	var copyFailed, aborted bool
+	for _, entry := range entries {
+		if entry["stage"] == "dav.proxy.copy" && entry["outcome"] == "error" && entry["error_class"] == "copy" {
+			copyFailed = true
+		}
+		if entry["msg"] == "HTTP request" && entry["outcome"] == "aborted" && entry["error_class"] == "response_aborted" && entry["trace_id"] != "" {
+			aborted = true
+		}
+	}
+	if !copyFailed || !aborted {
+		t.Fatalf("copy abort missing from trace: %#v", entries)
+	}
+}
+
+func TestDAVProxyBodyIdleTimeout(t *testing.T) {
+	for _, tc := range []struct {
+		name, path string
+		stalls     bool
+	}{
+		{"headers_then_stall", "/headers", true},
+		{"data_then_stall", "/partial", true},
+		{"progress_exceeds_timeout", "/progress", false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			canceled := make(chan struct{}, 1)
+			upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				w.Header().Set("Content-Type", "video/mp4")
+				w.WriteHeader(http.StatusOK)
+				if tc.path == "/partial" {
+					_, _ = w.Write([]byte("part"))
+				}
+				w.(http.Flusher).Flush()
+				if tc.stalls {
+					<-r.Context().Done()
+					canceled <- struct{}{}
+					return
+				}
+				for range 12 {
+					_, _ = w.Write([]byte("x"))
+					w.(http.Flusher).Flush()
+					time.Sleep(15 * time.Millisecond)
+				}
+			}))
+			defer upstream.Close()
+			transport := &http.Transport{DialContext: func(ctx context.Context, network, address string) (net.Conn, error) {
+				return (&net.Dialer{}).DialContext(ctx, "tcp", upstream.Listener.Addr().String())
+			}}
+			defer transport.CloseIdleConnections()
+			d := &davServer{client: &http.Client{Transport: transport}, mediaIdleTimeout: 40 * time.Millisecond}
+			downstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				d.proxyMedia(w, r, "http://media.example"+tc.path)
+			}))
+			defer downstream.Close()
+			ctx, cancel := context.WithTimeout(context.Background(), 600*time.Millisecond)
+			defer cancel()
+			start := time.Now()
+			req, err := http.NewRequestWithContext(ctx, http.MethodGet, downstream.URL, nil)
+			if err != nil {
+				t.Fatal(err)
+			}
+			resp, err := downstream.Client().Do(req)
+			var body []byte
+			if err == nil {
+				body, err = io.ReadAll(resp.Body)
+				resp.Body.Close()
+			}
+			elapsed := time.Since(start)
+			if tc.stalls {
+				if err == nil || elapsed > 200*time.Millisecond {
+					t.Fatalf("stalled body did not fail promptly: elapsed=%s body=%q err=%v", elapsed, body, err)
+				}
+				select {
+				case <-canceled:
+				case <-time.After(200 * time.Millisecond):
+					t.Fatal("stalled upstream request was not canceled")
+				}
+			} else if err != nil || len(body) != 12 || elapsed < 120*time.Millisecond {
+				t.Fatalf("progressing body failed despite continuous data: elapsed=%s body=%q err=%v", elapsed, body, err)
+			}
+		})
+	}
+}
 
 func TestOperationLogs(t *testing.T) {
 	previous := slog.Default()

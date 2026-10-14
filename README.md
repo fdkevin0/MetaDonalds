@@ -202,6 +202,11 @@ omitted when the displayed date is in the future. Date-only
 `If-Modified-Since`, `If-Unmodified-Since`, and `If-Range` requests do not use
 the historical release date as a content validator. Video and HLS segment
 proxy responses retain the upstream HTTP validators.
+If an upstream video or HLS body stops delivering bytes for 30 seconds, the
+service cancels that fetch. An upstream read failure after response headers
+have been sent aborts the client connection, so a partial stream is not
+reported as a completed file. The request log records this as `outcome=aborted`
+with the same trace ID as the failed proxy copy.
 
 Each DAV response has an `X-Trace-ID` header. The JSON request log uses that
 `trace_id` with a root `span_id`; DAV listing, JavDB API cache, upstream HTTP,

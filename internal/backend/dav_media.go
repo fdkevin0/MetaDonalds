@@ -21,6 +21,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/fdkevin0/MetaDonalds/internal/plugins/javdb"
@@ -29,6 +30,7 @@ import (
 
 const maxImage = 16 << 20
 const maxPlaylist = 1 << 20
+const defaultMediaIdleTimeout = 30 * time.Second
 
 type mediaVariant struct{ url, kind string }
 type mediaToken struct {
@@ -791,7 +793,9 @@ func (d *davServer) proxyMedia(w http.ResponseWriter, r *http.Request, raw strin
 	if value := r.Header.Get("If-Range"); value != "" {
 		headers.Set("If-Range", value)
 	}
-	resp, err := d.request(r.Context(), r.Method, raw, headers)
+	ctx, cancel := context.WithCancel(r.Context())
+	defer cancel()
+	resp, err := d.request(ctx, r.Method, raw, headers)
 	if err != nil {
 		davError(w, r, err)
 		return
@@ -821,11 +825,64 @@ func (d *davServer) proxyMedia(w http.ResponseWriter, r *http.Request, raw strin
 	_, copySpan := tracepkg.Begin(r.Context(), "dav.proxy.copy")
 	fields := tracepkg.Fields{Outcome: "ok", Status: resp.StatusCode}
 	if r.Method != http.MethodHead {
-		n, copyErr := io.Copy(w, resp.Body)
+		idleTimeout := d.mediaIdleTimeout
+		if idleTimeout <= 0 {
+			idleTimeout = defaultMediaIdleTimeout
+		}
+		n, copyErr := io.Copy(w, &idleProgressReader{body: resp.Body, timeout: idleTimeout, cancel: cancel})
 		fields.Bytes = n
 		if copyErr != nil {
 			fields.Outcome, fields.ErrorClass = "error", "copy"
+			if errors.Is(copyErr, context.DeadlineExceeded) {
+				fields.ErrorClass = "idle_timeout"
+			} else if errors.Is(copyErr, context.Canceled) {
+				fields.ErrorClass = "canceled"
+			}
 		}
+		copySpan.End(fields)
+		if copyErr != nil {
+			// Headers and perhaps bytes are already on the wire; returning normally
+			// would turn an unknown-length partial body into a valid HTTP 200.
+			panic(http.ErrAbortHandler)
+		}
+		return
 	}
 	copySpan.End(fields)
+}
+
+// idleProgressReader bounds time without upstream bytes, not the lifetime of a
+// video. A slow downstream writer does not count as an upstream stall. Canceling
+// the request unblocks net/http's body.
+type idleProgressReader struct {
+	body     io.Reader
+	timeout  time.Duration
+	cancel   context.CancelFunc
+	deadline time.Time
+}
+
+func (r *idleProgressReader) Read(p []byte) (int, error) {
+	if r.deadline.IsZero() {
+		r.deadline = time.Now().Add(r.timeout)
+	}
+	remaining := time.Until(r.deadline)
+	if remaining <= 0 {
+		r.cancel()
+		return 0, context.DeadlineExceeded
+	}
+	var state atomic.Uint32 // 0 reading, 1 completed, 2 timed out
+	timer := time.AfterFunc(remaining, func() {
+		if state.CompareAndSwap(0, 2) {
+			r.cancel()
+		}
+	})
+	n, err := r.body.Read(p)
+	state.CompareAndSwap(0, 1)
+	timer.Stop()
+	if state.Load() == 2 {
+		return n, context.DeadlineExceeded
+	}
+	if n > 0 {
+		r.deadline = time.Time{}
+	}
+	return n, err
 }
