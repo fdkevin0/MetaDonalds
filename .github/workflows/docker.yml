@@ -24,7 +24,7 @@ jobs:
           bun-version: '1.4.3'
       - uses: extractions/setup-just@v4
         with:
-          just-version: '1.58.0'
+          just-version: '1.59.0'
       - name: Install the Docker-pinned rclone for integration tests
         shell: bash
         run: |
