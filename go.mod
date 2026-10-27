@@ -12,7 +12,7 @@ require (
 	github.com/go-viper/mapstructure/v2 v2.5.0
 	github.com/spf13/cobra v1.10.2
 	github.com/spf13/viper v1.21.0
-	golang.org/x/net v0.61.0
+	golang.org/x/net v0.62.0
 	golang.org/x/sys v0.49.0
 )
 
